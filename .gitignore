@@ -1,0 +1,18 @@
+# DSH 试验实例（含密钥 .credentials.yaml / 会话 / 日志）
+/.dsh-home/
+# pnpm 内容寻址缓存
+/.pnpm-store/
+# agent 会话数据
+/.zcode/
+# 上游 DSH 源码副本（独立仓库，净改动=0）
+/deepseek-harness/
+# 依赖与构建产物
+node_modules/
+code/dshctl/gui/dist/
+# 运行时缓存与日志
+domains/.cache/
+domains/.check-history.json
+*.log
+*.tmp
+*~
+*.bak

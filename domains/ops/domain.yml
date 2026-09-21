@@ -1,0 +1,38 @@
+# domains/ops/domain.yml —— 由 dshctl adopt 产出（schema:1）；密钥只记 env 名
+schema: 1
+domain: ops
+display_name: DSH ops domain agent
+dsh_home: /hdd/demo/public/dsh-info/.dsh-home
+dsh_source: /hdd/demo/public/dsh-info/deepseek-harness
+capabilities:
+  - remote-exec
+guard:
+  rule_source: bkn
+preset:
+  source: /hdd/demo/public/dsh-info/.dsh-home/presets/i2stream-ops
+  skills_dirs:
+    - /hdd/demo/public/dsh-info/.dsh-home/skills
+plugins:
+  - id: bkn-plugin
+    path: /hdd/demo/public/dsh-info/code/dsh-plugin/index.ts
+  - id: ops-skill-manager
+    path: /hdd/demo/public/dsh-info/code/ops-skill-manager/index.ts
+api_server:
+  port: 8643
+  api_key_env: OPS_API_KEY
+  turn_timeout_sec: 120
+  max_task_duration_sec: 120
+  plugin_path: /hdd/demo/public/dsh-info/code/ops-api/index.ts
+  plugin_id: ops-api
+memory:
+  gateway_url: http://127.0.0.1:8420
+  session_keys: []
+ports:
+  api: 8643
+  gui: null
+systemd_unit: dsh-ops-trial.service
+shared_deps:
+  - name: i2agent
+    url: http://127.0.0.1:8090
+  - name: memory-gateway
+    url: http://127.0.0.1:8420

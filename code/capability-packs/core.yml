@@ -1,0 +1,54 @@
+# capability-packs/core.yml
+# subagent/workflow/goal/plan/web/桌面联动等编码 agent 能力 + 实例覆写（如 connection headless）
+pack: core
+description: "subagent/workflow/goal/plan/web/桌面联动等编码 agent 能力 + 实例覆写（所有领域恒隐含必裁）"
+disable:
+  tools:
+    - ui-sidebar-terminal
+    - ui-sidebar-files
+    - ui-sidebar-documentpreview
+    - ui-deliverables
+    - ui-subagent
+    - ui-workflow-run
+    - ui-goal
+    - ui-plan
+    - ui-schedule
+    - ui-jobs
+    - ui-message-feedback
+    - ui-trajectory
+    - open-in-app
+    - ui-open-in-app
+    - session-log-download
+    - directory-picker
+    - ui-reference
+    - file-reference-local
+    - workspace-files
+    - message-feedback
+    - terminal-controller
+    - subagent-spawn-in-process
+    - subagent-fork-in-process
+    - subagent
+    - tool-subagent-control
+    - tool-subagent-list-agents
+    - tool-subagent
+    - tool-subagent-fork
+    - workflow-ptc
+    - tool-workflow
+    - goal
+    - goal-round-driver
+    - command-goal
+    - tool-goal
+    - plan-mode
+    - web
+    - web-search-deepseek
+    - web-fetch-http
+    - tool-web
+    - session-log-deepseek
+    - webserver
+    - web-runtime
+    - client-hmr
+  overrides:
+    - id: connection
+      inject: []
+      config:
+        trustedHosts: []

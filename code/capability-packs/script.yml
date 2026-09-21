@@ -1,0 +1,8 @@
+# capability-packs/script.yml
+# 本机脚本执行能力包：勾选时从核心层放回 bash/terminal/run_code；必须配 guard.whitelist.commands
+# （规则 R4：capabilities 含 script 而命令白名单为空 → check error，裸 bash 无护栏禁止）。
+# 首个用户：SQL 转换域（obclient/mysql 测试库验证）。
+pack: script
+description: "本机脚本执行：勾选时放回 bash/terminal/run_code；必须配 guard.whitelist.commands（R4）"
+disable:
+  keep_tools: [bash, terminal, run_code]

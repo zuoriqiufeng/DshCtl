@@ -1,0 +1,5 @@
+# capability-packs/remote-exec.yml
+# 不挂本机 bash/fs；执行面只走 MCP 远程通道（运维域勾选；本身无额外 disable 项）
+pack: remote-exec
+description: "不挂本机 bash/fs；执行面只走 MCP 远程通道（本身无额外 disable 项）"
+disable: {}

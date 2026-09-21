@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# dshctl-selftest —— 自带 tsx（file:// 绝对加载，不依赖 cwd；readlink 解析 PATH 软链）
+# 两层运行时边界：本 wrapper 的 tsx 只跑 dshctl 自身代码；
+# 被编排的 DSH 域实例（dump-config / smoke spawn pnpm dsh）统一走 dsh_source 的 harness 运行时。
+SELF="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+exec node --import "file://$SELF/node_modules/tsx/dist/esm/index.mjs" "$SELF/self-test.ts" "$@"

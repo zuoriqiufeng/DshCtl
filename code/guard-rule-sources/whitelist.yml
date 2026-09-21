@@ -1,0 +1,7 @@
+# guard-rule-sources/whitelist.yml —— 白名单规则源（proposal §3.4；首个消费方 = SQL 转换域）
+# 语义："只放行"——script 类工具仅执行白名单命令，write/edit 仅写白名单路径；其余一律 deny。
+# commands：字面前缀（obclient 放行 "obclient -e ..."）或 re: 正则（re:^mysql\b）。
+# write_paths：前缀匹配（/tmp 放行 /tmp/x.sql）。
+# 生效方式：对应领域实例的 bkn-plugin config 加 ruleSource: whitelist + whitelistPath 指向本域规则文件。
+commands: [obclient, mysql]
+write_paths: [/tmp, /opt/data]

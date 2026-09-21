@@ -1,0 +1,8 @@
+{
+  "name": "dsh-plugin-i2stream-bkn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "i2Stream BKN 业务知识网络的 DSH (Cordis) 原生插件：关系图遍历 + 工具 + 风险护栏",
+  "dependencies": {}
+}

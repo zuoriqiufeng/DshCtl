@@ -1,0 +1,10 @@
+# capability-packs/file-ops.yml
+# 文件读写能力包：勾选时从核心层放回 read/write/edit/file-upload/workspace-files，额外裁 terminal。
+# 首个用户：SQL 转换域（读输入文件、写 MEDIA 输出、读映射表；设计 doc/gernalarrange/domain-agent-orchestration-proposal.md §3.2）。
+# 维护约定：keep_tools 语义见 dshctl-design.md §7.1——核心层全裁 → 本包按勾选"放回/再裁"。
+pack: file-ops
+description: "文件读写能力：勾选时从核心层放回 read/write/edit/file-upload/workspace-files，额外裁 terminal"
+disable:
+  keep_tools: [read, write, edit, file-upload, workspace-files]
+  disable:
+    tools: [terminal]

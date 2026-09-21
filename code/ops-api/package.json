@@ -1,0 +1,7 @@
+{
+  "name": "dsh-plugin-ops-api",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "i2Stream Ops Agent 的 OpenAI 兼容 HTTP api-server 插件（替代 Hermes api-server /v1 面）"
+}

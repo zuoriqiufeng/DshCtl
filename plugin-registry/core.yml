@@ -1,0 +1,227 @@
+# plugin-registry/core.yml —— DSH 核心功能清单（tier=core 的上游 roster id）
+# 语义：核心功能不可缺（R11）——清单锚定的是「功能」不是「实现」：
+#   · 无 slot 标记的 id = 严格红线，能力包/ops-app disable 命中即 check R11 error；
+#   · 带 slot 标记的 id = 功能槽载体——禁用它的前提是 slots 里同槽其他成员活跃
+#     （成员可不在本清单：上游 twin 如 llm-pi-ai，或自研扩展插件入库后手工追加）。
+# 口径：host/loader 基础件（禁掉即实例不健康或全请求失败）；UI 面/编码 agent 面/subagent/
+# workflow/goal/plan/web 等"可裁能力"不在本清单（ops 现网即已裁剪它们）。
+# 维护：上游升级新增 host 基础件时补录；以现网 roster（domains/.cache/dump-config-*.json）核对。
+# 格式（schema 2 加法扩展）：core 每条 { id, slot?, group, desc }；顶层 slots 段声明功能槽。
+# group 枚举：宿主/加载器 | LLM/Agent 主链 | 会话/存储 | 工具面 | 上下文治理 | 安全/权限 | 连接/设置 | 附件/上传
+schema: 2
+# slots = 功能槽：成员含载体自身；禁用载体需「其他成员活跃且有存在证据」（roster 或本域插件）才豁免。
+# 成员不在默认 profile（未进 roster 缓存）时，需先插入实例再 `dshctl check <域> --refresh` 才构成证据。
+# 任何核心 id 都可开槽：加 slot: 标记 + 在此声明成员即可（everything-is-a-plugin，见 user-manual 替换指南）。
+slots:
+  llm-adapter:
+    desc: 模型请求适配（DeepSeek 官方 / pi-ai / 自研扩展均可承载）——禁用槽载体前须同槽另一成员活跃
+    members: [llm-deepseek, llm-pi-ai]
+  shell-exec:
+    desc: 命令执行环境（沙箱版 / 本地版 / PowerShell 版——按平台与信任模型选择；同 shell 服务名先禁后启）
+    members: [bash-sandbox, bash-local, pwsh-local]
+  fs-impl:
+    desc: 文件系统实现（沙箱 / 本地 / SSH 远端；同 fs 服务名先禁后启）
+    members: [fs-sandbox, fs-local, fs-ssh]
+  storage-backend:
+    desc: 存储后端（json/sqlite 不同注册键可共存，storage-domain config.backend 切换后按需禁旧）
+    members: [storage-json, storage-sqlite]
+  bash-tool:
+    desc: bash 工具实现（一次性 / 持久会话——同工具名互斥，先禁后启）
+    members: [tool-bash, tool-bash-persistent]
+core:
+  # 宿主/加载器
+  - id: modules
+    group: 宿主/加载器
+    desc: Web GUI 客户端模块系统——宿主编排启动图、浏览器按需加载插件包
+  - id: cordis-host-runner
+    group: 宿主/加载器
+    desc: 宿主进程的 Cordis 运行器——装载并运行插件树
+  - id: cordis-client-runner
+    group: 宿主/加载器
+    desc: 浏览器端 Cordis 运行器——在页面里装载客户端插件
+  - id: timer
+    group: 宿主/加载器
+    desc: 定时器服务（setInterval/timeout 调度）
+  - id: hmr
+    group: 宿主/加载器
+    desc: 配置热重载——监视 cordis.patch.yml 就地重放（改源码仍需重启）
+  # LLM/Agent 主链
+  - id: llm
+    group: LLM/Agent 主链
+    desc: LLM 服务抽象层（模型调用统一入口）
+  - id: llm-deepseek
+    slot: llm-adapter
+    group: LLM/Agent 主链
+    desc: DeepSeek 模型适配（官方 API 接入）——同槽可替换（llm-pi-ai / 自研扩展）
+  - id: llm-retry
+    group: LLM/Agent 主链
+    desc: LLM 调用重试与退避策略
+  - id: deepseek-llm-api-extensions
+    group: LLM/Agent 主链
+    desc: DeepSeek API 请求扩展（插件包清单随请求上报）
+  - id: agent
+    group: LLM/Agent 主链
+    desc: Agent 运行时注册表——initiator 因果链（AsyncLocalStorage）与生命周期
+  - id: agent-loop
+    group: LLM/Agent 主链
+    desc: 默认 agent 驱动——回合/步进的创建与执行循环
+  - id: agent-instructions
+    group: LLM/Agent 主链
+    desc: agent 指令注入（上下文说明组装）
+  - id: agent-default-model
+    group: LLM/Agent 主链
+    desc: 默认模型选择策略
+  - id: system-prompt
+    group: LLM/Agent 主链
+    desc: 系统提示词组装
+  - id: tools
+    group: LLM/Agent 主链
+    desc: 工具服务——defineTool 注册面 + pre-execute 护栏 waterfall
+  # 会话/存储
+  - id: session
+    group: 会话/存储
+    desc: 事件溯源会话日志与内存存储（持久记录唯一事实源）
+  - id: session-controller
+    group: 会话/存储
+    desc: 会话生命周期控制 API（新建/切换/归档）
+  - id: session-persistence-jsonl
+    group: 会话/存储
+    desc: 会话 JSONL 落盘持久化
+  - id: session-query-sqlite
+    group: 会话/存储
+    desc: 会话 SQLite 查询索引
+  - id: session-projection
+    group: 会话/存储
+    desc: 会话事件投影为可读视图
+  - id: session-projection-cache
+    group: 会话/存储
+    desc: 会话投影缓存（加速回放读取）
+  - id: session-checkpoint-policy
+    group: 会话/存储
+    desc: 会话检查点写入策略
+  - id: storage
+    group: 会话/存储
+    desc: 存储中枢 ctx.storage——命名后端与数据面挂载
+  - id: storage-json
+    slot: storage-backend
+    group: 会话/存储
+    desc: JSON 文件存储后端——同槽可替换（storage-sqlite，config.backend 切换）
+  - id: storage-domain
+    group: 会话/存储
+    desc: 领域级存储后端（按域隔离数据）
+  # 工具面
+  - id: subprocess
+    group: 工具面
+    desc: 子进程服务（共享 child-process 能力）
+  - id: shell-env
+    group: 工具面
+    desc: shell 环境准备（PATH/环境变量注入）
+  - id: tool-bash
+    slot: bash-tool
+    group: 工具面
+    desc: bash 命令执行工具——同槽可替换（tool-bash-persistent 持久会话版）
+  - id: tool-fs
+    group: 工具面
+    desc: 文件读写工具
+  - id: tool-fs-search
+    group: 工具面
+    desc: 文件搜索工具
+  - id: tool-skill
+    group: 工具面
+    desc: 技能调用工具（按 SKILL.md 流程执行）
+  - id: skill
+    group: 工具面
+    desc: 技能装载与注册
+  - id: skill-filesystem
+    group: 工具面
+    desc: 技能文件系统实现（技能目录读写）
+  - id: commands
+    group: 工具面
+    desc: 斜杠命令注册与执行
+  - id: command-feedback
+    group: 工具面
+    desc: 命令执行反馈呈现
+  # 上下文治理
+  - id: compaction-basic
+    group: 上下文治理
+    desc: 自动会话压缩——token 压力上升时摘要旧历史
+  - id: command-compact
+    group: 上下文治理
+    desc: 手动 /compact 命令触发压缩
+  - id: token-meter
+    group: 上下文治理
+    desc: token 与上下文压力计量（回放感知）
+  - id: timeout-policy
+    group: 上下文治理
+    desc: 工具调用协作式超时策略（超时转模型可读错误）
+  - id: spill-local
+    group: 上下文治理
+    desc: 本地溢写——超长内容落盘外置
+  - id: spill-policy
+    group: 上下文治理
+    desc: 溢写触发与保留策略
+  - id: tool-result-pruner
+    group: 上下文治理
+    desc: 工具结果裁剪器（压缩 tool-result 体量）
+  # 安全/权限
+  - id: approval
+    group: 安全/权限
+    desc: 高危操作人工审批（ask 决策接入）
+  - id: permission
+    group: 安全/权限
+    desc: 权限判定服务
+  - id: sandbox
+    group: 安全/权限
+    desc: 进程沙箱能力族（收敛边界与平台后端）
+  - id: sandbox-policy
+    group: 安全/权限
+    desc: 沙箱策略解析（按平台选后端）
+  - id: bash-sandbox
+    slot: shell-exec
+    group: 安全/权限
+    desc: bash 沙箱执行（受限命令环境）——同槽可替换（bash-local / pwsh-local）
+  - id: fs-sandbox
+    slot: fs-impl
+    group: 安全/权限
+    desc: 文件系统访问沙箱（路径白名单）——同槽可替换（fs-local / fs-ssh）
+  - id: fs-observation-policy
+    group: 安全/权限
+    desc: 文件系统观测策略（变更监听边界）
+  # 连接/设置
+  - id: connection
+    group: 连接/设置
+    desc: 浏览器-宿主连接层——Remote RPC/事件流/自动重连
+  - id: api-remotes
+    group: 连接/设置
+    desc: 远程 API 注册面（web-app 组合声明件）
+  - id: settings
+    group: 连接/设置
+    desc: 用户配置服务 ctx.settings（按命名空间解析）
+  - id: settings-controller
+    group: 连接/设置
+    desc: 配置读写控制 API
+  - id: credentials
+    group: 连接/设置
+    desc: 凭证引用与授权流（密钥不进配置）
+  - id: workspace
+    group: 连接/设置
+    desc: 工作区实体族——持久目录记录与会话归属
+  - id: workspace-controller
+    group: 连接/设置
+    desc: 工作区控制 API
+  - id: resources
+    group: 连接/设置
+    desc: 客户端资源模型——URL 地址到 useResource 实时值
+  - id: plugin-inventory
+    group: 连接/设置
+    desc: 插件清单端点——直读 Loader 的 entry 级状态投影
+  - id: plugin-package-inventory-deepseek
+    group: 连接/设置
+    desc: 包级清单——活动插件 name+version 随请求上报
+  # 附件/上传（session-controller 硬依赖 fileUploads——见 E1.2 事故记录）
+  - id: file-upload
+    group: 附件/上传
+    desc: 文件上传通道（会话附件入口）
+  - id: attachment-local
+    group: 附件/上传
+    desc: 本地附件存储实现

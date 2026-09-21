@@ -1,0 +1,25 @@
+instances:
+  - domain: ops
+    dsh_home: /hdd/demo/public/dsh-info/.dsh-home
+    ports:
+      api: 8643
+      gui: null
+    systemd_unit: dsh-ops-trial.service
+    status: trial
+    last_check:
+      at: 2026-09-21
+      result: pass
+      errors: 0
+      warns: 0
+shared_deps:
+  - name: memory-gateway
+    url: http://127.0.0.1:8420
+    unit: memorycore-gateway.service
+  - name: embed-sidecar
+    url: http://127.0.0.1:8096
+    unit: embed-server.service
+  - name: i2agent
+    url: http://127.0.0.1:8090
+  - name: qdrant
+    url: http://127.0.0.1:6333
+unregistered_ports: []

@@ -1,0 +1,7 @@
+{
+  "name": "dsh-plugin-ops-skill-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "i2Stream Ops Agent 技能自管理插件：skill_manage 工具 + usage 台账 + 变更 ledger + curator 生命周期（Hermes skill_manager_tool/curator 复刻）"
+}
