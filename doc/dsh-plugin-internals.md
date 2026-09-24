@@ -1,8 +1,8 @@
 # DSH 插件体系深文档（源码级）
 
 > 用途：自学/查阅用，不上 GUI 页面。
-> 源码树：`deepseek-harness/`（上游 DSH harness 副本，git 0d1f50007f，2026-09-15）。
-> 所有 file:line 均已 Read 核实；行号随上游升级会漂移，升级后按 §8 的关键词重新定位。
+> 源码树：`deepseek-harness/`（上游 DSH harness 副本）。
+> ⚠️ **版本锚点已过期**：本文 file:line 核实于 `0d1f50007f`（v0.1.6-alpha.1，2026-09-15 clone）；上游已于 2026-09-23 pull 升级至 `00102833df`（v0.1.7-alpha.2，距旧锚点 2343 个提交），行号普遍漂移 10~25 行。**按 §8 的关键词重新定位**，漂移实测见 [dsh-plugin-reading-guide.md §5](dsh-plugin-reading-guide.md#5-版本锚点与漂移警告)。
 > Cordis 核心（Loader/EntryTree/Include/Fiber/Context）来自 vendored 包：`vendor/cordis`（@deepseek-ai/cordis）、`vendor/loader`（cordis-plugin-loader）、`vendor/include`（cordis-plugin-include）；harness 自身的装配层在 `packages/boot/app-boot` 与 `apps/cli`。
 
 ---
@@ -138,6 +138,7 @@
 
 - **watcher**：`deepseek-harness/packages/boot/app-boot/src/watch-config.ts:36-67` — chokidar 逐路径监视，只有命中精确文件才 refresh，失败仅 warn（热重载无回滚）。
 - **谁装 watcher**：`deepseek-harness/apps/cli/src/profile-boot.ts:375-402` — 仅 `patchReload: 'live'` 的 profile；headless/acp/sdk 是 `startup`（模板表 `deepseek-harness/packages/boot/app-boot/src/profile.ts:137-160`；自定义 profile 默认 live）。
+  > ⚠️ **v0.1.7 已变更**：`patchReload` 键已从 `DshProfileManifest` 移除（只剩 `bundles`），全仓无代码读取；配置监视改由 base 层 hmr 行默认启用（`base/cordis.patch.yml:28-32`），headless/sdk/acp 各自 `disabled: true`。本工作区 `code/dshctl/render.ts:33` 仍生成该键，属待清理的死键。详见 [dsh-plugin-reading-guide.md §5](dsh-plugin-reading-guide.md#5-版本锚点与漂移警告)。
 - **watch-only fallback**：`deepseek-harness/apps/cli/src/profile-boot.ts:380-391` — live profile 若无 hmr 服务，自动挂 `config: { root: [] }` 的 HMR 实例（零模块监视目录），注释逐字 "Config-only HMR for the live profile patch layer"。
 - **按 id 重建链路**：`deepseek-harness/packages/boot/app-boot/src/index.ts:260-296`（watchUserPatches 重读→compose→entry.update）→ `deepseek-harness/vendor/include/src/index.ts:190-201`（否决 fiber restart，就地重放）→ `deepseek-harness/vendor/loader/src/config/entry.ts:98-149`（diff→_patchContext→fiber.update）→ `deepseek-harness/vendor/cordis/src/fiber.ts:718-753`（restart：旧模块+新 config）。
 - **源码热替换为什么默认没有**（三段代码链）：

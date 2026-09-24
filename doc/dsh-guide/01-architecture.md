@@ -2,6 +2,8 @@
 
 **本篇你会学到**：DSH 到底是个什么东西；六层架构怎么分；Context / Fiber / Service / Entry / Patch 这些核心对象谁管谁；本工作区（dshctl、插件库、profile）落在图的哪个位置。
 
+> ⚠️ **版本锚点**：本篇 file:line 核实于 `0d1f50007f`（v0.1.6-alpha.1）；上游已升级至 `00102833df`（v0.1.7-alpha.2，2026-09-23），行号普遍漂移 10~25 行。本轮已复核并更新主要行号（Loader / boot()，均附旧值）；漂移对照表见 [dsh-plugin-reading-guide.md §5](../dsh-plugin-reading-guide.md#5-版本锚点与漂移警告)。
+
 ---
 
 ## 1. 一句话心智模型
@@ -34,7 +36,7 @@ deepseek-harness/  （pnpm workspace monorepo）
 │
 ├─ L1 装配层 —— vendor/loader、vendor/include、vendor/group、vendor/hmr
 │    「YAML 配置 → 插件树」的执行者
-│    Loader（vendor/loader/src/index.ts:65  class Loader extends EntryTree）
+│    Loader（vendor/loader/src/index.ts:77  class Loader extends EntryTree（现行；旧 65））
 │    Include + patch 语义（vendor/include/src/index.ts:57  applyEntryPatches）
 │
 ├─ L2 业务包层 —— packages/*（一切产品能力都是插件）
@@ -46,7 +48,7 @@ deepseek-harness/  （pnpm workspace monorepo）
 │    packages/sandbox|skill|mcp|spill|compaction|…（能力域包）
 │
 ├─ L3 启动层 —— packages/boot/app-boot + apps/cli
-│    boot() 与 profile/env/patch 基建（packages/boot/app-boot/src/index.ts:867）
+│    boot() 与 profile/env/patch 基建（packages/boot/app-boot/src/index.ts:961  new Context()，现行；旧 867）
 │    CLI 入口（apps/cli/package.json:14-16  "bin": {"dsh": "lib/bin.js"}）
 │
 ├─ L4 配置层 —— packages/bundle/* + packages/preset/*
