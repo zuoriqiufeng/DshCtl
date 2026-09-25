@@ -22,6 +22,7 @@ import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTru
 import { loadCoreList, coreIds } from './core.ts'
 import { runReplace, type ReplacePaths } from './replace.ts'
 import { importFromZip, importFromGit } from './import.ts'
+import { scaffoldPlugin, packPlugin, installIntoDomain } from './unitize.ts'
 import { atomicWrite, ensureDir, fileExists } from './yml.ts'
 
 const ROOT = join(import.meta.dirname, '..', '..') // dsh-info/
@@ -81,10 +82,12 @@ const CMDS: CmdHelp[] = [
   { name: 'upgrade-check', args: '[--refresh] [--json]', desc: '升级跟随对账（手册第 2 步自动化）：全领域跑 R2/R3 子集 → 每领域"需要动的清单"', examples: ['dshctl upgrade-check'] },
   { name: 'registry', args: '[--json]', desc: '实例登记表一览', examples: ['dshctl registry'] },
   {
-    name: 'plugin', args: 'list | show <id> | add | remove <id> | trust <id> [--off] | publish <domain> | import <zip> --id <id> | import-git <url> --id <id>', desc: '插件库：登记 / 收编 / 导入 / 信任 / 发布',
+    name: 'plugin', args: 'list | show <id> | add | scaffold <id> | pack <id> | install <id> --domain <域> | remove <id> | trust <id> [--off] | publish <domain> | import <zip> --id <id> | import-git <url> --id <id>', desc: '插件库：登记 / 收编 / 导入 / 单元化 / 信任 / 发布',
     detail: ['add 按参数形态自动判型：存在的目录/文件 → local 收编；*.zip → zip 导入；http(s):// 或 git@ → git 导入',
-      'import / import-git 保留为显式别名（行为不变）',
-      'zip/git 导入默认 untrusted——核实后 dshctl plugin trust <id>'],
+      'import / import-git 保留为显式别名（行为不变）；zip/git 导入默认 untrusted——核实后 trust',
+      'scaffold = 把插件目录补成自描述单元（dsh.plugin.yml + package.json main/exports/files/peerDeps）',
+      'pack = tsc 构建出 lib/ + 生成组合包 patch + pnpm pack → tgz（上游②通道可消费）',
+      'install = 把插件装进领域 domain.yml plugins[]（layout 决定 in-place / vendored 路径）'],
     examples: ['dshctl plugin list', 'dshctl plugin add --id bkn-plugin --path code/dsh-plugin/index.ts', 'dshctl plugin add --id demo --path ~/downloads/demo.zip'],
   },
   {
@@ -507,6 +510,65 @@ async function main(): Promise<number> {
       if (r.errors.length) { for (const e of r.errors) console.error(`publish: ${e}`); return 1 }
       savePluginRegistry(PLUGIN_REGISTRY, reg)
       console.log(`publish ${name}: 新入库 ${r.added.length ? r.added.join(', ') : '（无）'}；跳过已存在 ${r.skipped.join(', ') || '（无）'}`)
+      return 0
+    }
+    if (sub === 'scaffold') {
+      const id = positional[1]
+      if (!id) return usageError('plugin scaffold', '需要 <id>')
+      const r = scaffoldPlugin(reg, id, DOMAINS, flags.vendored ? { layout: 'vendored' } : {})
+      if (r.errors.length) { for (const e of r.errors) console.error(`plugin scaffold: ${e}`); return 1 }
+      if (asJson) { console.log(JSON.stringify(r, null, 2)); return 0 }
+      for (const w of r.warnings) console.log(`  ${yellow('⚠')} ${w}`)
+      console.log(`plugin scaffold ${id}: ${r.dir}`)
+      console.log(r.createdManifest ? `  + dsh.plugin.yml（新建，layout=${r.manifest.layout}${r.manifest.config !== undefined ? '，config 自现网 patch 回填' : ''}）` : `  · dsh.plugin.yml 已存在（保留）`)
+      for (const c of r.pkgChanges) console.log(`  ${c.startsWith('已是') ? '·' : '+'} ${c.replace('package.json: ', '')}`)
+      console.log(`\n下一步：dshctl plugin install ${id} --domain <域>   # 装进领域（或 pack 出 tgz）`)
+      return 0
+    }
+    if (sub === 'pack') {
+      const id = positional[1]
+      if (!id) return usageError('plugin pack', '需要 <id>')
+      const r = packPlugin(reg, id, { outDir: join(ROOT, 'plugin-registry', 'dist'), dshSource: join(ROOT, 'deepseek-harness') })
+      if (asJson) { console.log(JSON.stringify(r, null, 2)); return r.ok ? 0 : 1 }
+      for (const l of r.log) console.log(`  · ${l}`)
+      if (!r.ok) { for (const e of r.errors) console.error(`plugin pack: ${e}`); return 1 }
+      console.log(`plugin pack ${id}: ${green('OK')} → ${r.tgzPath}`)
+      console.log(`\n消费（上游组合包通道）：dsh plugin --profile <p> add ${r.tgzPath}`)
+      return 0
+    }
+    if (sub === 'install') {
+      const id = positional[1]
+      const dName = String(flags.domain ?? (positional[2] && !String(positional[2]).startsWith('--') ? positional[2] : '')) || ''
+      if (!id || !dName) return usageError('plugin install', '需要 <id> --domain <域>')
+      const dPath = join(DOMAINS, dName, 'domain.yml')
+      if (!fileExists(dPath)) return usageError('plugin install', `${dPath} 不存在`)
+      const parsed = parseDomain(dPath)
+      if (!parsed.spec) return usageError('plugin install', `domain.yml 解析失败: ${parsed.errors.join('; ')}`)
+      const spec = parsed.spec
+      const r = installIntoDomain(reg, spec, id, flags['in-place'] ? { layout: 'in-place' } : flags.vendored ? { layout: 'vendored' } : {})
+      if (!r.ok) { for (const e of r.errors) console.error(`plugin install: ${e}`); return 1 }
+      // 回写 domain.yml（保注释）：plugins[] 里该条目覆写 path/config，无则追加——其余键不动
+      const { editYaml } = await import('./yml.ts')
+      const existing = (spec.plugins ?? []).find((p) => p.id === id)
+      const row: Record<string, unknown> = { id, path: r.path }
+      if (existing?.config !== undefined) row.config = existing.config
+      editYaml(dPath, (doc) => {
+        const seq = doc.get('plugins', true) as unknown as
+          | { items: Array<{ get: (k: string) => unknown; set: (k: string, v: unknown) => void }> }
+          | undefined
+        if (!seq || !Array.isArray(seq.items)) { doc.set('plugins', [row]); return }
+        const hit = seq.items.find((it) => it.get?.('id') === id)
+        if (!hit) { seq.items.push(doc.createNode(row)); return }
+        hit.set('path', r.path)
+        if (existing?.config !== undefined) hit.set('config', existing.config)
+      })
+      // editYaml 之后的 spec 从盘上重读，保证后续输出与 json 分支一致
+      const reread = parseDomain(dPath)
+      if (reread.spec) Object.assign(spec, reread.spec)
+      if (asJson) { console.log(JSON.stringify({ ...r, domain: dName, spec }, null, 2)); return 0 }
+      for (const n of r.notes) console.log(`  · ${n}`)
+      console.log(`plugin install ${id}: 领域 ${dName} → ${r.path}`)
+      console.log(`\n下一步：dshctl up ${dName}   # check → apply 落 patch（加 --yes 全链）`)
       return 0
     }
     if (sub === 'import') {

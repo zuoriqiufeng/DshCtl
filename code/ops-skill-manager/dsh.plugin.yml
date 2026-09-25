@@ -1,0 +1,19 @@
+# dsh.plugin.yml —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/
+schema: 1
+id: ops-skill-manager
+entry: index.ts
+layout: in-place
+description: 技能自管理。暴露 skill_manage 工具让 Agent 自己安装/启停/更新技能包（SKILL.md 目录）并记 usage 台账——技能生命周期不再需要人工进文件系统操作。
+config:
+  skillsDir: /hdd/demo/public/dsh-info/.dsh-home/skills
+  upstreamDir: /hdd/demo/public/i2stream-bkn/skill
+  intervalHours: 168
+  staleAfterDays: 30
+  archiveAfterDays: 90
+  firstRunDelaySec: 120
+provides:
+  - skill_manage（安装/启用/禁用/更新技能）
+  - usage 台账
+  - curator 迁移
+category: 技能管理

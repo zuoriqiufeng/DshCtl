@@ -8,6 +8,9 @@
 /deepseek-harness/
 # 依赖与构建产物
 node_modules/
+lib/
+code/*/lib/
+plugin-registry/dist/
 code/dshctl/gui/dist/
 # 运行时缓存与日志
 domains/.cache/

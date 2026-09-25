@@ -1,5 +1,5 @@
 /**
- * check.ts — F2 对账器（R1-R10 全规则），纯只读；runChecks 为 async（R9 fetch 探活）。
+ * check.ts — F2 对账器（R1-R13 全规则），纯只读；runChecks 为 async（R9 fetch 探活）。
  * 上游 roster：`pnpm dsh --profile <p> --dump-config`（YAML）→ ids，按上游版本缓存于 domains/.cache/。
  * R2/R3 逻辑抽为 reconcileUpstream 纯函数（upgrade-check 复用）。
  */
@@ -8,6 +8,7 @@ import { readFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { loadYamlText, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
+import { crossCheckRegistries } from './plugin.ts'
 import { ENV_NAME_RE } from './domain.ts'
 import { loadRegistry, findDomainConflicts, saveRegistry, type Registry } from './registry.ts'
 import { mergePacks, loadPacks } from './packs.ts'
@@ -144,18 +145,21 @@ export async function runChecks(spec: DomainSpec, regPath: string, packsDir: str
     items.push(...rec.items)
   }
 
+  const { entries: mergedEntries } = mergePacks(packs, caps)
   {
     const currentPatch = join(spec.dsh_home, 'bundles', 'ops-app', 'cordis.patch.yml')
     if (existsSync(currentPatch)) {
       const cur = (loadYamlText(readFileSync(currentPatch, 'utf8')) as Array<{ id?: string }>).map((e) => e?.id).filter((x): x is string => !!x)
-      const { entries } = mergePacks(loadPacks(packsDir), caps)
-      const rendered = new Set(entries.map((e) => e.id))
+      const rendered = new Set(mergedEntries.map((e) => e.id))
       const gap = cur.filter((id) => !rendered.has(id))
       items.push(gap.length === 0
         ? { rule: 'R10', level: 'pass', msg: '无归层缺口（现状 patch 全部 id 均被能力包覆盖）' }
         : { rule: 'R10', level: 'warn', msg: `归层缺口（现状有、清单无，交人工归层）: ${gap.join(', ')}` })
     }
   }
+
+  // R13：两套 registry 交叉（领域引用的插件 id 不得同时被能力包 disable——语义冲突）
+  items.push(...crossCheckRegistries(spec, mergedEntries.filter((e) => e.disabled).map((e) => e.id)))
 
   // R11：核心功能不可缺——无 slot 的 core id 严格不可裁；带 slot 的 id 同槽有活跃成员即可豁免
   if (opts.coreListPath) {

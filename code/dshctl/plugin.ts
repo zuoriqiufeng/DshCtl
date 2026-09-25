@@ -2,8 +2,10 @@
  * plugin.ts — 插件库：登记/收编/发布/信任位（登记引用为主，导入件落 sources/）。
  */
 import { readFileSync, existsSync } from 'node:fs'
+import { join, dirname } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
+import { loadPluginManifest } from './unitize.ts'
 
 export interface PluginEntry {
   id: string
@@ -106,17 +108,40 @@ export function domainPluginRefs(spec: DomainSpec): Array<{ id: string; path: st
     ...(spec.api_server?.plugin_id && spec.api_server?.plugin_path ? [{ id: spec.api_server.plugin_id, path: spec.api_server.plugin_path }] : [])]
 }
 
-/** R12：领域插件引用与库对齐（missing/path 漂移 → error；untrusted → warn） */
+/** R12：领域插件引用与库对齐（missing/path 漂移 → error；untrusted → warn）。
+ * 布局按领域 path 前缀推断：指向 <home>/plugins/ 的=vendored（install 拷贝产物），
+ * 其余=in-place（须与库 path 一致）。entry 名从源目录 dsh.plugin.yml 读。 */
 export function checkDomainPlugins(spec: DomainSpec, reg: PluginRegistry): Array<{ level: 'error' | 'warn' | 'pass'; msg: string }> {
   const out: Array<{ level: 'error' | 'warn' | 'pass'; msg: string }> = []
   const refs = domainPluginRefs(spec)
   for (const r of refs) {
     const e = reg.plugins.find((p) => p.id === r.id)
     if (!e) { out.push({ level: 'error', msg: `插件 '${r.id}' 不在插件库（dshctl plugin add --id ${r.id} --path ${r.path}）` }); continue }
-    if (e.path !== r.path) { out.push({ level: 'error', msg: `插件 '${r.id}' path 漂移：领域=${r.path} 库=${e.path}` }); continue }
+    // 布局按路径前缀推断（无状态）：指向 <home>/plugins/ 的=vendored（install 拷贝产物）；
+    // 其余=in-place，须与库 path 逐字节一致。entry 名从源 manifest 读。
+    const vendoredPrefix = join(spec.dsh_home, 'plugins') + '/'
+    if (r.path.startsWith(vendoredPrefix)) {
+      const m = loadPluginManifest(dirname(e.path))
+      const expected = join(vendoredPrefix, e.id, m?.entry ?? 'index.ts')
+      if (r.path !== expected) { out.push({ level: 'error', msg: `插件 '${r.id}' path 漂移（vendored 应为 ${expected}）——dshctl plugin install ${e.id} --domain ${spec.domain} 重装` }); continue }
+    } else if (e.path !== r.path) {
+      out.push({ level: 'error', msg: `插件 '${r.id}' path 漂移：领域=${r.path} 库=${e.path}` }); continue
+    }
     if (!e.trusted) { out.push({ level: 'warn', msg: `插件 '${r.id}' 未信任（git/zip 导入件需人工信任：dshctl plugin trust ${r.id}）` }); continue }
-    out.push({ level: 'pass', msg: `插件 '${r.id}' 与库对齐（${e.source}）` })
+    const layout = r.path.startsWith(join(spec.dsh_home, 'plugins') + '/') ? 'vendored' : 'in-place'
+    out.push({ level: 'pass', msg: `插件 '${r.id}' 与库对齐（${e.source}/${layout}）` })
   }
   if (!refs.length) out.push({ level: 'pass', msg: '领域未引用插件' })
+  return out
+}
+
+/** R13：两套 registry 交叉——同一 id 既被领域引用又被能力包 disable 是语义冲突（引用了却不给跑）。
+ * disabledIds = 该领域能力包合成面里 disabled=true 的 entry id（check.ts 由 mergePacks 供）。 */
+export function crossCheckRegistries(spec: DomainSpec, disabledIds: Iterable<string>): Array<{ level: 'error' | 'warn' | 'pass'; msg: string }> {
+  const out: Array<{ level: 'error' | 'warn' | 'pass'; msg: string }> = []
+  const disabled = new Set(disabledIds)
+  const hits = domainPluginRefs(spec).filter((r) => disabled.has(r.id))
+  if (!hits.length) { out.push({ rule: 'R13', level: 'pass', msg: '无交叉冲突（领域引用 ∩ 能力包禁用 = ∅）' }); return out }
+  for (const h of hits) out.push({ rule: 'R13', level: 'error', msg: `插件 '${h.id}' 同时被领域引用与被能力包 disable——语义冲突（从能力包移除该 id，或从领域 plugins[] 移除）` })
   return out
 }

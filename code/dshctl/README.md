@@ -18,7 +18,8 @@
 | `smoke <domain> [--bench]` | 临时实例冒烟（api+100 端口顺延 + overlay 隔离 + api-smoke + 领域自检 + 兜底清理） |
 | `upgrade-check [--refresh]` | 升级跟随对账（手册第 2 步自动化）：verdict pass/blocked/degraded |
 | `registry` | 实例登记表一览 |
-| `plugin …` | 插件库：list / show / add（形态自动判型：目录·zip·git）/ remove / trust / publish / import / import-git |
+| `plugin …` | 插件库：list / show / add（形态自动判型：目录·zip·git）/ **scaffold** / **pack** / **install** / remove / trust / publish / import / import-git |
+|  | **scaffold** = 补全自描述单元（dsh.plugin.yml + package.json main/exports/files/peerDeps）；**pack** = tsc 构建 lib/ + 组合包 patch → tgz；**install** = 装进领域 plugins[]（layout 决定 in-place / vendored） |
 | `gui` | GUI 薄壳（等价 `bin/dshctl-gui`，`--port/--host` 透传）：只可视化本工具产出，操作可复现为等价 CLI 命令 |
 
 运行：**`dshctl <cmd>`**（PATH 软链 → `bin/dshctl`；自带 tsx，**任意目录可用**，无需 cd）。
@@ -32,6 +33,19 @@
 
 入口：`bin/dshctl`（CLI）/ `bin/dshctl-selftest` / `bin/dshctl-gui`（GUI server，`--port` 透传）；`/usr/local/bin/dshctl` 为 PATH 软链。
 CI：`bash ci.sh`（五环节：本工具 + dsh-plugin + ops-api self-test + upgrade-check + check --ci）。
+
+## 插件单元化与插入 dsh 的六条路径（v0.5）
+
+插件目录 = 自包含单元：`dsh.plugin.yml`（自描述：id/entry/layout/config/provides）+ 完整 `package.json`（main/exports/files/peerDependencies）。`dshctl plugin scaffold <id>` 补全，`pack` 产出 tgz，`install --domain <d>` 装配。布局：`in-place`（源码原地，改即生效）/ `vendored`（拷进 `$DSH_HOME/plugins/<id>/`，随 home 整体搬移）。
+
+| # | 插入方式 | dshctl 支持 |
+|---|---|---|
+| ① | profile patch insert（apply 生成） | ✅ 默认装配路径 |
+| ② | 组合包 `dsh.bundle` + `dsh plugin add` | ✅ `plugin pack` 产 tgz → 上游通道 |
+| ③ | preset（会话级 persona/skills） | ✅（preset 源随域管理） |
+| ④ | bundle 纯增量层（ops-app 裁剪面） | ✅（apply 生成） |
+| ⑤ | Creator 模式 `plugin_manager`（运行期） | ⚠️ 产出 tgz 即可被其消费；dshctl 不代管运行期 |
+| ⑥ | MCP server | ✅（domain.yml shared_deps + admin 托管段） |
 
 ## 维护约定
 

@@ -3,5 +3,23 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "i2Stream Ops Agent 的 OpenAI 兼容 HTTP api-server 插件（替代 Hermes api-server /v1 面）"
+  "description": "i2Stream Ops Agent 的 OpenAI 兼容 HTTP api-server 插件（替代 Hermes api-server /v1 面）",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.ts",
+    "dsh.plugin.yml",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
 }

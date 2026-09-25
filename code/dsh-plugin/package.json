@@ -4,5 +4,23 @@
   "private": true,
   "type": "module",
   "description": "i2Stream BKN 业务知识网络的 DSH (Cordis) 原生插件：关系图遍历 + 工具 + 风险护栏",
-  "dependencies": {}
+  "dependencies": {},
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.ts",
+    "dsh.plugin.yml",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
 }

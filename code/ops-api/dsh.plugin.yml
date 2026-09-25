@@ -1,0 +1,15 @@
+# dsh.plugin.yml —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/
+schema: 1
+id: ops-api
+entry: index.ts
+layout: in-place
+description: 领域对外 API 面。HTTP↔DSH 会话桥（follow/prompt 帧协议，把外部调用变成一轮 Agent 会话并回传流式/非流式结果）、Bearer 密钥鉴权、/admin 管理面（MCP/技能开关、依赖健康）、记忆网关接入与任务超时管控。
+provides:
+  - HTTP API（Bearer 鉴权）
+  - /admin 管理面
+  - 会话桥（follow/prompt 帧协议）
+  - 记忆网关接入
+  - 依赖健康上报
+  - 任务超时/熔断管控
+category: 对外 API

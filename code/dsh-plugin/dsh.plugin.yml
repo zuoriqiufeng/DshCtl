@@ -1,0 +1,25 @@
+# dsh.plugin.yml —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/
+schema: 1
+id: bkn-plugin
+entry: index.ts
+layout: in-place
+description: BKN 知识网语义检索 + 风险护栏。让 Agent 按 i2Stream 运维语义查询产品配置/实体关系/操作规程/故障场景，诊断报错与链路故障、产出解决方案；RiskGuard 在工具执行前拦截高危动作（BKN 三源规则或白名单模式）。
+config:
+  bknRoot: /hdd/demo/public/i2stream-bkn/bkn
+  guardEnabled: true
+  guardBlock: true
+provides:
+  - query_product
+  - resolve_relation
+  - resolve_operation
+  - list_scenarios
+  - get_prerequisites
+  - check_action_risk
+  - check_compatibility
+  - diagnose_error
+  - diagnose_db_link
+  - design_solution
+  - explain_architecture
+  - search_qdrant
+category: 知识网

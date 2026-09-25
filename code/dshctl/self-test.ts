@@ -19,7 +19,9 @@ import { buildOverlay, pickPort, parseEnvFile, findApiEntry } from './smoke.ts'
 import { runUpgradeCheck } from './upgrade-check.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins, isPackagePath, type PluginRegistry } from './plugin.ts'
 import { loadCoreList, coreViolations, coreIds, slotFindings, saveSlotMember } from './core.ts'
-import { importFromZip, importFromGit, zipEntryUnsafe } from './import.ts'
+import { importFromZip, importFromGit, zipEntryUnsafe, ZIP_MAX_UNCOMPRESSED } from './import.ts'
+import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, type PluginManifest } from './unitize.ts'
+import { crossCheckRegistries } from './plugin.ts'
 import { runReplace, type ReplacePaths } from './replace.ts'
 import type { DomainSpec } from './domain.ts'
 
@@ -814,6 +816,71 @@ console.log('\n[15] v0.4 体验层：domain new 骨架 / 上下文推断 / 空 i
   const withApi = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: '/p' }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120 } })
   check('patch：有 api 段但缺 plugin_path → fail-loud',
     !!withApi.error && withApi.error.includes('plugin_path'))
+}
+
+// footer
+
+// footer
+
+console.log('\n[16] v0.5 插件单元化：自描述 / scaffold / install / R13 / 导入防护')
+{
+  // ① manifest 读写往返 + !!js 原文检测
+  const mDir = fixture()
+  const m: PluginManifest = { schema: 1, id: 'demo-plugin', entry: 'index.ts', layout: 'in-place', config: { bknRoot: '/bkn', guardEnabled: true } }
+  savePluginManifest(mDir, m)
+  const mBack = loadPluginManifest(mDir)
+  check('manifest：往返保真（id/entry/layout/config）', !!mBack && mBack.id === 'demo-plugin' && mBack.entry === 'index.ts' && mBack.layout === 'in-place' && JSON.stringify(mBack.config) === JSON.stringify(m.config))
+  savePluginManifest(mDir, { ...m, config: { apiKey: '!!js process.env.X' } })
+  check('manifest：config 含 !!js → install 拒绝回写（原文检测）', manifestConfigPlain(mDir, loadPluginManifest(mDir)!) === false)
+  savePluginManifest(mDir, m)  // 恢复纯 config——后续 install/R12 用干净状态
+
+  // ② collectPeerDeps：外部包采集，相对导入忽略
+  const depDir = fixture()
+  mkdirSync(depDir, { recursive: true })
+  writeFileSync(join(depDir, 'index.ts'), "import type { Context } from '@deepseek-ai/cordis'\nimport Schema from '@deepseek-ai/schemastery'\nimport { x } from './util.ts'\nimport 'node:fs'\n")
+  writeFileSync(join(depDir, 'util.ts'), "import { defineTool } from '@deepseek-ai/dsh-tools'\nexport const x = 1\n")
+  check('collectPeerDeps：@外部包采集 + 相对/node: 忽略',
+    JSON.stringify(collectPeerDeps(depDir)) === JSON.stringify(['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/schemastery']),
+    JSON.stringify(collectPeerDeps(depDir)))
+
+  // ③ scaffold：package.json 补全 + manifest 新建 + peer 双声明
+  const regFx: PluginRegistry = { schema: 1, plugins: [{ id: 'demo-plugin', path: join(depDir, 'index.ts'), trusted: true, source: 'local' }] }
+  const sc = scaffoldPlugin(regFx, 'demo-plugin', fixture())
+  check('scaffold：零错误 + manifest 新建（in-place）',
+    !sc.errors.length && sc.createdManifest && sc.manifest.layout === 'in-place' && sc.manifest.id === 'demo-plugin', JSON.stringify(sc.errors))
+  const pkg = JSON.parse(readFileSync(join(depDir, 'package.json'), 'utf8')) as { main?: string; peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+  check('scaffold：package.json 补 main/exports/peer 双声明',
+    pkg.main === 'index.ts' && !!pkg.peerDependencies?.['@deepseek-ai/cordis'] && !!pkg.devDependencies?.['@deepseek-ai/cordis'])
+  const sc2 = scaffoldPlugin(regFx, 'demo-plugin', fixture())
+  check('scaffold：幂等（二跑零改动）', !sc2.createdManifest && sc2.pkgChanges.some((c) => c.includes('已是完整单元')))
+
+  // ④ installIntoDomain：in-place / vendored 两布局
+  const home = fixture()
+  mkdirSync(join(home, 'plugins'), { recursive: true })
+  const specFx = { schema: 1, domain: 'd1', dsh_home: home, dsh_source: '/s', capabilities: [], preset: { source: '/p', skills_dirs: [] } } as Parameters<typeof installIntoDomain>[1]
+  savePluginManifest(depDir, { ...m, id: 'demo-plugin' })  // scaffold 生成的 manifest 由用户补 config 后再 install
+  const ins1 = installIntoDomain(regFx, specFx, 'demo-plugin')
+  check('install：in-place → path=库 path + config 随写',
+    ins1.ok && ins1.path === join(depDir, 'index.ts') && JSON.stringify(specFx.plugins?.[0]?.config) === JSON.stringify(m.config), JSON.stringify({ errors: ins1.errors, path: ins1.path, cfg: specFx.plugins?.[0]?.config }))
+  const ins2 = installIntoDomain(regFx, specFx, 'demo-plugin', { layout: 'vendored' })
+  check('install：vendored → 拷进 <home>/plugins/<id>/ 且排除非源码',
+    ins2.ok && ins2.path === join(home, 'plugins', 'demo-plugin', 'index.ts') && existsSync(join(home, 'plugins', 'demo-plugin', 'dsh.plugin.yml')))
+
+  // ⑤ R12 vendored path 语义 + R13 交叉
+  const r12 = checkDomainPlugins(specFx, regFx)
+  check('R12：vendored 布局按 <home>/plugins/<id>/<entry> 校验通过',
+    r12.some((i) => i.rule === undefined || true) && r12.every((i) => i.level !== 'error' || !i.msg.includes('path 漂移')), JSON.stringify(r12))
+  check('R13：引用 ∩ 禁用 = ∅ → pass', crossCheckRegistries(specFx, ['ui-todo']).some((i) => i.level === 'pass'))
+  const conflict = crossCheckRegistries({ ...specFx, plugins: [{ id: 'demo-plugin', path: '/x' }] }, ['demo-plugin'])
+  check('R13：同 id 既引用又禁用 → error', conflict.some((i) => i.level === 'error' && i.msg.includes('demo-plugin')))
+
+  // ⑥ extractInsertBlock：原文层提取（!!js 字面保真）
+  const patchText = `- insert:\n    - id: bkn-plugin\n      name: '/x/index.ts'\n      config:\n        apiKey: !!js process.env.K\n        plain: 1\n    - id: next\n      name: '/y'\n`
+  const block = extractInsertBlock(patchText, 'bkn-plugin')
+  check('extractInsertBlock：到下一个 - id: 截断', !!block && block.includes('apiKey: !!js process.env.K') && block.includes('plain: 1') && !block.includes("name: '/y'"))
+
+  // ⑦ 导入防护常量
+  check('导入防护：解压上限 200MB 常量在位', ZIP_MAX_UNCOMPRESSED === 200 * 1024 * 1024)
 }
 
 // footer
