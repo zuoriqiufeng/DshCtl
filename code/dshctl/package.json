@@ -1,6 +1,6 @@
 {
   "name": "dshctl",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "DSH 领域编排 CLI：清单驱动、幂等生成、对账校验（交付期工具，只读写文件与配置）",

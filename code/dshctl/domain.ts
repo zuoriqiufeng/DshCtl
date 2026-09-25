@@ -67,3 +67,66 @@ export function parseDomain(path: string): { spec: DomainSpec | null; errors: st
 export function renderDomainYml(spec: DomainSpec): string {
   return `# domains/${spec.domain}/domain.yml —— 由 dshctl adopt 产出（schema:1）；密钥只记 env 名\n${dumpYaml(spec)}`
 }
+
+export interface SkeletonOpts {
+  home: string
+  source: string
+  port: number
+  presetSource: string
+  unit: string
+  /** --from 派生：可复用段（capabilities/guard/memory/shared_deps/plugins 与 api_server 细节） */
+  derived?: Partial<DomainSpec>
+}
+
+/**
+ * domain new 骨架：身份字段全部自动推导（home/端口/unit/env 名/preset 路径），
+ * 可复用段由 --from 带入。dsh_home 默认避开已被占用的 .dsh-home——ops-app 能力包按
+ * home 独立存放（apply.ts 固定写 <home>/bundles/ops-app），两域共用一份 home 会互相覆盖。
+ */
+export function renderDomainSkeleton(name: string, o: SkeletonOpts): string {
+  const envName = `${name.toUpperCase().replace(/-/g, '_')}_API_KEY`
+  const d = o.derived ?? {}
+  const api = d.api_server  // 仅 --from 派生时存在；手写新域默认无 api 段
+  const spec: DomainSpec = {
+    schema: 1,
+    domain: name,
+    display_name: `${name} domain agent`,
+    dsh_home: o.home,
+    dsh_source: o.source,
+    capabilities: d.capabilities ?? ['remote-exec'],
+    guard: d.guard ?? { rule_source: 'bkn' },
+    // skills_dirs 默认不声明（R6 对空目录会报"无合法 SKILL.md"）——新域有技能时再加
+    preset: { source: o.presetSource },
+    ...(d.plugins?.length ? { plugins: d.plugins } : {}),
+    // api_server 默认不进骨架：没有 domain-api 插件（plugin_path）时 renderProfilePatch 会诚实拒绝。
+    // --from 派生时带入源域的 api_server（port/env 已重写）；手写时参照 domains/ops/domain.yml。
+    ...(api ? {
+      api_server: {
+        port: o.port,
+        api_key_env: envName,
+        turn_timeout_sec: api.turn_timeout_sec ?? 120,
+        max_task_duration_sec: api.max_task_duration_sec ?? 120,
+        ...(api.plugin_path ? { plugin_path: api.plugin_path } : {}),
+        ...(api.plugin_id ? { plugin_id: api.plugin_id } : {}),
+      },
+    } : {}),
+    ...(d.memory ? { memory: d.memory } : {}),
+    ports: { api: o.port, gui: null },
+    systemd_unit: o.unit,
+    ...(d.shared_deps?.length ? { shared_deps: d.shared_deps } : {}),
+  }
+  const header = [
+    `# domains/${name}/domain.yml —— 由 dshctl domain new 生成（schema:1）；密钥只记 env 名`,
+    `# 核对清单（路径/端口已按当前环境推导，逐项确认后跑 dshctl check ${name}）：`,
+    `#   [ ] dsh_home —— 默认避开已被占用的 .dsh-home（ops-app 能力包按 home 存放，两域共用会互相覆盖）`,
+    `#   [ ] preset.source —— persona + agent.cordis.yml 源目录（apply 时拷进 DSH_HOME/presets/${name}；目录需自建）`,
+    `#   [ ] api_server —— 默认未声明（无 domain-api 插件时 profile patch 无法生成该段）；`,
+    `#       需要 OpenAI 兼容 API 面时参照 domains/ops/domain.yml 加 api_server 段并填 plugin_path；`,
+    `#       key 值由 systemd EnvironmentFile 注入（R8 只记 env 名，默认 <NAME>_API_KEY=${envName}）`,
+    `#   [ ] capabilities —— core 隐含；追加 script 需配 guard.whitelist（R4）`,
+    `#   [ ] skills_dirs —— 默认未声明（无技能域合法）；有技能时加 preset.skills_dirs: [<home>/skills] 并放入 SKILL.md`,
+    `#   [ ] plugins —— 留空；需要时 dshctl plugin add --id <id> --path <入口> 后登记进本清单`,
+    ``,
+  ].join('\n')
+  return header + dumpYaml(spec)
+}

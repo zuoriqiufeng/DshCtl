@@ -8,16 +8,22 @@
 
 | 命令 | 职责 |
 |---|---|
+| `domain new <name> [--from <域>]` | 生成 domain.yml 骨架（路径/端口/env 名自动推导，不再手写绝对路径） |
+| `domain list` | domains/ 全部领域清单（与 registry 登记态并排） |
 | `adopt --instance <name>` | 反向归档现存实例 → domain.yml + 能力包 DRAFT（首次）+ registry 登记 |
-| `check <domain> [--ci] [--refresh]` | 对账器：R1 端口/登记 · R2/R3 上游 roster · R4 script 白名单 · R5 契约目录 · R6 skills · R7 超时 · R8 密钥 env · R9 依赖探活 · R10 归层缺口 |
+| `check <domain> [--ci] [--refresh]` | 对账器：R1 端口/登记 · R2/R3 上游 roster · R4 script 白名单 · R5 契约目录 · R6 skills · R7 超时 · R8 密钥 env · R9 依赖探活 · R10 归层缺口 · R11 核心清单 · R12 插件库 · R13 registry 交叉 |
+| `up <domain> [--yes]` | 一键链：check → dry-run 预览 →（--yes）apply 落盘 → smoke 冒烟 |
 | `diff <domain>` | 只读 diff：apply 生成面对账（子集语义，空=理解现状） |
 | `apply <domain> [--dry-run] [--yes]` | 落盘编排五件生成物（check 有 error 拒绝；settings 不生成） |
 | `smoke <domain> [--bench]` | 临时实例冒烟（api+100 端口顺延 + overlay 隔离 + api-smoke + 领域自检 + 兜底清理） |
 | `upgrade-check [--refresh]` | 升级跟随对账（手册第 2 步自动化）：verdict pass/blocked/degraded |
 | `registry` | 实例登记表一览 |
-| `gui serve` | GUI 薄壳（v0.4，`gui/` 工程）：只可视化本工具产出，操作可复现为等价 CLI 命令 |
+| `plugin …` | 插件库：list / show / add（形态自动判型：目录·zip·git）/ remove / trust / publish / import / import-git |
+| `gui` | GUI 薄壳（等价 `bin/dshctl-gui`，`--port/--host` 透传）：只可视化本工具产出，操作可复现为等价 CLI 命令 |
 
-运行：**`dshctl <cmd>`**（PATH 软链 → `bin/dshctl`；自带 tsx，**任意目录可用**，无需 cd）；退出码 0/1/2 = 通过/校验失败/执行错误。
+运行：**`dshctl <cmd>`**（PATH 软链 → `bin/dshctl`；自带 tsx，**任意目录可用**，无需 cd）。
+退出码：**0**=通过/无差异；**1**=校验失败或存在待处理差异；**2**=用法/执行错误。`check --ci` 为严格模式（warn 也计失败）。
+帮助：`dshctl <cmd> --help` 看单条命令的参数与示例；`<domain>` 省略时按「cwd 在 domains/<名> 内 > 唯一域」推断。
 
 ## 两层运行时边界（独立化，2026-09-16）
 

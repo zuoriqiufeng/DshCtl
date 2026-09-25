@@ -42,45 +42,49 @@ export function renderProfileCordisYml(): string {
 /** ④ profiles/<domain>/cordis.patch.yml：plugins insert + domain-api insert + agent-presets + 托管段标记 */
 export function renderProfilePatch(spec: DomainSpec): { content: string; error?: string } {
   const api = spec.api_server
-  if (!api) return { content: '', error: '清单缺 api_server 段，无法生成 domain-api insert' }
-  const pluginPath = (api as { plugin_path?: string }).plugin_path
-  const pluginId = (api as { plugin_id?: string }).plugin_id ?? 'domain-api'
-  if (!pluginPath) return { content: '', error: 'api_server.plugin_path 缺失（adopt 回填或手工声明 domain-api 插件源码路径）' }
+  // api_server 段可选（v0.4 起支持无 api 的最小域）：声明了 api_server 但缺 plugin_path 仍 fail-loud
+  const pluginPath = api ? (api as { plugin_path?: string }).plugin_path : undefined
+  if (api && !pluginPath) return { content: '', error: 'api_server.plugin_path 缺失（adopt 回填或手工声明 domain-api 插件源码路径）' }
+  const pluginId = api ? ((api as { plugin_id?: string }).plugin_id ?? 'domain-api') : ''
   const y = (v: unknown): string => JSON.stringify(v)
+  const insertRows: string[] = []
+  for (const p of spec.plugins ?? []) {
+    insertRows.push(`    - id: ${p.id}`)
+    insertRows.push(`      name: ${y(p.path)}`)
+  }
+  if (api) {
+    insertRows.push(`    - id: ${pluginId}`)
+    insertRows.push(`      name: ${y(pluginPath)}`)
+    insertRows.push('      config:')
+    insertRows.push(`        preset: ${spec.domain}`)
+    insertRows.push(`        apiKey: ''`)
+    insertRows.push('        apiServer:')
+    insertRows.push('          enabled: true')
+    insertRows.push(`          host: '127.0.0.1'`)
+    insertRows.push(`          port: ${api.port}`)
+    insertRows.push(`          apiKey: !!js process.env.${api.api_key_env} ?? ''`)
+    insertRows.push(`        turnTimeoutSec: ${api.turn_timeout_sec}`)
+    insertRows.push(`        modelId: ${spec.domain}`)
+    insertRows.push('        session:')
+    insertRows.push('          enabled: true')
+    insertRows.push('          headerNames: [X-Ops-Session-Id, X-Hermes-Session-Id]')
+    insertRows.push('          maxTurnsPerSession: 0')
+    insertRows.push("          unknownIdPolicy: reject")
+    if (spec.memory?.gateway_url) {
+      insertRows.push('        memory:')
+      insertRows.push('          enabled: true')
+      insertRows.push('          headerNames: [X-Ops-Memory-Key, X-Hermes-Session-Key]')
+      insertRows.push(`          gatewayUrl: ${y(spec.memory.gateway_url)}`)
+      insertRows.push("          gatewayApiKey: ''")
+      insertRows.push('          toolsEnabled: true')
+      insertRows.push('          autoStart: false')
+    }
+  }
   const lines: string[] = [
     `# profiles/${spec.domain}/cordis.patch.yml —— 由 dshctl apply 生成（勿手改）`,
-    '- insert:',
   ]
-  for (const p of spec.plugins ?? []) {
-    lines.push(`    - id: ${p.id}`)
-    lines.push(`      name: ${y(p.path)}`)
-  }
-  lines.push(`    - id: ${pluginId}`)
-  lines.push(`      name: ${y(pluginPath)}`)
-  lines.push('      config:')
-  lines.push(`        preset: ${spec.domain}`)
-  lines.push(`        apiKey: ''`)
-  lines.push('        apiServer:')
-  lines.push('          enabled: true')
-  lines.push(`          host: '127.0.0.1'`)
-  lines.push(`          port: ${api.port}`)
-  lines.push(`          apiKey: !!js process.env.${api.api_key_env} ?? ''`)
-  lines.push(`        turnTimeoutSec: ${api.turn_timeout_sec}`)
-  lines.push(`        modelId: ${spec.domain}`)
-  lines.push('        session:')
-  lines.push('          enabled: true')
-  lines.push('          headerNames: [X-Ops-Session-Id, X-Hermes-Session-Id]')
-  lines.push('          maxTurnsPerSession: 0')
-  lines.push("          unknownIdPolicy: reject")
-  if (spec.memory?.gateway_url) {
-    lines.push('        memory:')
-    lines.push('          enabled: true')
-    lines.push('          headerNames: [X-Ops-Memory-Key, X-Hermes-Session-Key]')
-    lines.push(`          gatewayUrl: ${y(spec.memory.gateway_url)}`)
-    lines.push("          gatewayApiKey: ''")
-    lines.push('          toolsEnabled: true')
-    lines.push('          autoStart: false')
-  }
+  // 无插件且无 api 时不输出 `- insert:`（空 insert 行会被 patch 引擎当 non-insert 打启动 warn）
+  if (insertRows.length) { lines.push('- insert:'); lines.push(...insertRows) }
   lines.push('- id: agent-presets')
   lines.push('  config:')
   lines.push(`    default: ${spec.domain}`)

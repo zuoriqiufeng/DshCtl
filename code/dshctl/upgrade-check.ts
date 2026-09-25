@@ -2,7 +2,7 @@
  * upgrade-check.ts — F6 升级跟随对账（手册第 2 步自动化）：registry 全领域 × 同一 roster 跑 R2/R3
  * 子集 → 每领域"需要动的清单"；verdict: pass(进第3步)/blocked(消失id)/degraded(无roster禁假通过)。
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadRegistry, type Registry } from './registry.ts'
 import { loadPacks, type CapabilityPack } from './packs.ts'
@@ -18,6 +18,8 @@ export interface UpgradeDomainReport {
   disappeared: string[]
   addedUncovered: string[]
   degraded?: string
+  /** 非阻断提示（如登记残留） */
+  note?: string
 }
 
 export interface UpgradeReport {
@@ -42,7 +44,13 @@ export function runUpgradeCheck(opts: {
   const rosterBySource = new Map<string, { ids: string[]; version: string } | null>()
 
   for (const inst of reg.instances) {
-    const { spec } = parseDomain(join(opts.domainsDir, inst.domain, 'domain.yml'))
+    const dPath = join(opts.domainsDir, inst.domain, 'domain.yml')
+    if (!existsSync(dPath)) {
+      // 登记残留（清单已删但 registry 未清）：降为 warn 提示清理，不拖垮整体 verdict
+      domains.push({ domain: inst.domain, dsh_source: '-', errors: 0, warns: 1, disappeared: [], addedUncovered: [], degraded: undefined, note: `domain.yml 不存在——登记残留（dshctl registry 里删掉该条，或重建 domains/${inst.domain}/domain.yml）` })
+      continue
+    }
+    const { spec } = parseDomain(dPath)
     if (!spec) {
       domains.push({ domain: inst.domain, dsh_source: '-', errors: 1, warns: 0, disappeared: [], addedUncovered: [], degraded: 'domain.yml 解析失败' })
       continue

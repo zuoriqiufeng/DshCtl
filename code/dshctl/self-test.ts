@@ -7,8 +7,8 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite, mutateYamlText } from './yml.ts'
-import { parseDomain, renderDomainYml, ENV_NAME_RE } from './domain.ts'
-import { loadRegistry, saveRegistry, upsertInstance, findDomainConflicts } from './registry.ts'
+import { parseDomain, renderDomainYml, renderDomainSkeleton, ENV_NAME_RE } from './domain.ts'
+import { loadRegistry, saveRegistry, upsertInstance, findDomainConflicts, listDomainNames, pickDomain } from './registry.ts'
 import { classify, mergePacks, loadPacks, renderPackYml, type CapabilityPack } from './packs.ts'
 import { adoptInstance } from './adopt.ts'
 import { runChecks, loadPrevRoster, appendCheckHistory, loadCheckHistory, unitActive, portOccupied } from './check.ts'
@@ -751,6 +751,72 @@ console.log('\n[18] 替换通道：判型 + 保注释 + 全链（预演零写入
     && readFileSync(fxK.files.core!, 'utf8') === kCore && readFileSync(fxK.files.domain!, 'utf8').includes('new-impl'),
     JSON.stringify({ ok: kr.ok, errs: kr.newErrors, steps: kr.steps?.map((s) => s.action) }))
 }
+
+console.log('\n[15] v0.4 体验层：domain new 骨架 / 上下文推断 / 空 insert 语义')
+{
+  // ① renderDomainSkeleton：身份字段推导 + api_server 默认缺省
+  const sk = renderDomainSkeleton('demo-x', {
+    home: '/tmp/hx', source: '/tmp/sx', port: 8644,
+    presetSource: '/tmp/hx/presets/demo-x', unit: 'dsh-demo-x.service',
+  })
+  const parsed = parseDomain(join(mkdtempSync(join(tmpdir(), 'dshctl-sk')), 'domain.yml'))
+  void parsed
+  const fxSk = join(fixture(), 'domain.yml')
+  writeFileSync(fxSk, sk)
+  const skParsed = parseDomain(fxSk)
+  check('骨架：解析零错误（check 开箱即过）', !!skParsed.spec && skParsed.errors.length === 0, JSON.stringify(skParsed.errors))
+  check('骨架：身份字段推导（home/port/unit/env 名）',
+    skParsed.spec?.dsh_home === '/tmp/hx' && skParsed.spec?.api_server === undefined
+    && skParsed.spec?.ports?.api === 8644 && skParsed.spec?.systemd_unit === 'dsh-demo-x.service')
+  check('骨架：api_key_env = <NAME>_API_KEY（R8 合法）',
+    sk.includes('DEMO_X_API_KEY') && !!skParsed.spec)
+  check('骨架：默认不带 skills_dirs（无技能域合法，R6 不扫空目录）', !skParsed.spec?.preset?.skills_dirs?.length)
+  check('骨架：核对清单注释在头部', sk.startsWith('# domains/demo-x/domain.yml') && sk.includes('[ ] dsh_home'))
+
+  // ② --from 派生：api_server 带入但 port/env 重写
+  const skFrom = renderDomainSkeleton('demo-y', {
+    home: '/tmp/hy', source: '/tmp/sx', port: 8645,
+    presetSource: '/tmp/hy/presets/demo-y', unit: 'dsh-demo-y.service',
+    derived: {
+      capabilities: ['remote-exec', 'script'],
+      api_server: { port: 8643, api_key_env: 'OPS_API_KEY', turn_timeout_sec: 90, max_task_duration_sec: 90, plugin_path: '/x/ops-api/index.ts', plugin_id: 'ops-api' },
+    },
+  })
+  check('骨架 --from：capabilities 带入 + api_server port/env 重写 + plugin_path 保留',
+    skFrom.includes('- remote-exec') && skFrom.includes('- script')
+    && skFrom.includes('port: 8645') && skFrom.includes('DEMO_Y_API_KEY')
+    && skFrom.includes('/x/ops-api/index.ts') && skFrom.includes('turn_timeout_sec: 90'),
+    JSON.stringify({ has: skFrom.includes('port: 8643') }))
+
+  // ③ pickDomain 三级推断
+  const names = ['alpha', 'beta']
+  check('推断：显式指定优先', pickDomain('/x', '/d', 'beta', names).name === 'beta')
+  check('推断：cwd 在域目录内取其名', pickDomain('/d/alpha/sub', '/d', '', names).name === 'alpha')
+  check('推断：唯一域自动取', pickDomain('/x', '/d', '', ['only']).name === 'only')
+  const multi = pickDomain('/x', '/d', '', names)
+  check('推断：多域无 cwd 上下文 → 列候选不瞎猜', 'candidates' in multi && multi.candidates.length === 2)
+
+  // ④ listDomainNames：只算有 domain.yml 的目录
+  const scanRoot = fixture()
+  mkdirSync(join(scanRoot, 'domains', 'a'), { recursive: true })
+  mkdirSync(join(scanRoot, 'domains', 'b'), { recursive: true })
+  mkdirSync(join(scanRoot, 'domains', 'c'), { recursive: true })
+  writeFileSync(join(scanRoot, 'domains', 'a', 'domain.yml'), 'schema: 1\ndomain: a\n')
+  writeFileSync(join(scanRoot, 'domains', 'c', 'other.yml'), 'x: 1')
+  check('listDomainNames：缺 domain.yml 的目录不算', JSON.stringify(listDomainNames(join(scanRoot, 'domains'))) === JSON.stringify(['a']))
+  check('listDomainNames：目录不存在返回空数组', JSON.stringify(listDomainNames(join(scanRoot, 'nope'))) === '[]')
+
+  // ⑤ renderProfilePatch：api 段可选 + 空 insert 省略
+  const { renderProfilePatch } = await import('./render.ts')
+  const apiLess = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: '/p' }, ports: { api: 8644, gui: null } })
+  check('patch：无 api 段 → 不输出空 `- insert:`（防启动 warn）',
+    !apiLess.error && !apiLess.content.includes('- insert:') && apiLess.content.includes('- id: agent-presets'))
+  const withApi = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: '/p' }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120 } })
+  check('patch：有 api 段但缺 plugin_path → fail-loud',
+    !!withApi.error && withApi.error.includes('plugin_path'))
+}
+
+// footer
 
 // footer
 for (const r of roots) rmSync(r, { recursive: true, force: true })
