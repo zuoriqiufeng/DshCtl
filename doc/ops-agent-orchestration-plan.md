@@ -177,7 +177,7 @@ ops-app 同时对 base 的编码能力行逐个 disable（id 以源码实际行�
 
 | 管理对象 | v1 能力 | 持久化 | 生效方式 |
 |----------|---------|--------|----------|
-| **MCP server** | 列表 / 新增 / 编辑 / 启停 | profile cordis.patch.yml 托管段（§4.2） | patchReload: live 热生效（mcp-client 编辑配置即原地重连，README 已确认） |
+| **MCP server** | 列表 / 新增 / 编辑 / 启停 | profile cordis.patch.yml 托管段（§4.2） | patchReload: live 热生效（mcp-client 编辑配置即原地重连，README 已确认）（注：`patchReload` 键已在 harness v0.1.7 移除——config 监视改由 base 层 hmr 行默认提供，详见 dsh-plugin-reading-guide §5） |
 | **skill** | 列表（扫 customSkillDirs）/ 按 skill 启停 | settings.yaml ops-admin 段（disabledSkills） | ops-admin 插件 hook skill 注册表过滤；新会话生效 |
 | **工具** | 只读清单（名字/来源/描述） | — | 只读（v1）；开关涉及 preset realm，列入 v2 |
 | **preset** | 只读列表 + agent.cordis.yml 查看 | — | 只读（v1）；编辑列入 v2（preset 是受信组合，写入需校验） |

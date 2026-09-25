@@ -1,6 +1,6 @@
 import { Typography, Space, Tag } from 'antd'
 import { BookOutlined, RocketOutlined, AppstoreOutlined, NodeIndexOutlined, QuestionCircleOutlined, DeploymentUnitOutlined } from '@ant-design/icons'
-import { PageHead, PageCard, Hint, StepBadge, CodeBlock } from '../api.tsx'
+import { GRAY, PageHead, PageCard, Hint, StepBadge, CodeBlock } from '../api.tsx'
 
 const { Text, Paragraph } = Typography
 
@@ -25,12 +25,10 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 }
 
 const PAGES: Array<[string, string]> = [
-  ['概览', '体系健康一屏总览：实例/领域/依赖健康 + 每域 check 纤细表（点行进详情）'],
-  ['实例登记', 'registry.yml 视图：端口分配、托管 unit、运行状态（点行开详情抽屉）'],
-  ['领域管理', '左侧选领域 → 详情页：编排画布 / 概览 / check / diff / 清单编辑'],
-  ['插件库', '插件目录（分类方卡）· 四种入库方式（方法卡）· 核心功能分组（R11 槽内可替换）'],
+  ['概览', '体系健康一屏总览：实例登记（行展开看 DSH_HOME/unit/端口）+ 依赖健康 + 每域 check 趋势'],
+  ['领域', '真主从：左列表常驻 → 右栏详情（编排画布 / 概览 / check / diff / 清单编辑）或新建向导'],
+  ['插件库', '插件目录（分类方卡）· 入库方式（路径/zip/git，形态自动判型）· 单元化 scaffold/pack/install · 核心功能分组'],
   ['升级对账', 'harness 更新后跑：全领域 roster 对账，给出"需要动的清单"'],
-  ['新建领域', '向导五步创建 domain.yml（只写清单，实例骨架走 apply）'],
   ['使用手册', '本页'],
 ]
 
@@ -39,6 +37,14 @@ export default function ManualPage() {
     <div>
       <PageHead title="使用手册" desc="快速上手 · 页面速览 · DSH 体系 · 编排原理 · FAQ" icon={<BookOutlined />} iconColor="#722ed1" />
       <Space direction="vertical" style={{ width: '100%' }} size={14}>
+        <Section icon={<DeploymentUnitOutlined />} title="两套控制台的分工（别进错门）" color="#13c2c2">
+          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <div style={{ fontSize: 13 }}><b>本控制台（dshctl GUI，离线/清单侧）</b>：读工作区 <code>domains/</code> + <code>plugin-registry/</code> ——管「实例怎么被正确地造出来并保持正确」：领域清单、能力包裁剪、插件入库/单元化、对账与升级跟进。操作落盘走 dshctl 等价命令。</div>
+            <div style={{ fontSize: 13 }}><b>运行实例管理面（ops-api /admin，在线/热更侧）</b>：读 <code>$DSH_HOME/profiles/&lt;域&gt;/cordis.patch.yml</code> 托管段 + <code>$DSH_HOME/skills</code> ——管「跑起来的实例」：MCP 服务器增删、技能启停、依赖健康。带独立 adminKey 鉴权（http://127.0.0.1:8643/admin）。</div>
+            <div style={{ fontSize: 12, color: GRAY.sub }}>两者读的是上下游（清单 → 生成物），功能不重叠、不合并；改动清单侧后需 apply + 重启实例，运行侧改动即时生效。本页与 /admin 互不跳转——端口与鉴权模型都不同。</div>
+          </Space>
+        </Section>
+
         <Section icon={<RocketOutlined />} title="5 分钟上手" color="#52c41a">
           <Step n={1} title="看健康">打开「概览」——统计卡与依赖健康点告诉你体系是否正常；领域行的绿/红点阵是最近 7 次 check 趋势。</Step>
           <Step n={2} title="跑对账">「领域管理」→ 点领域 → check 页签自动运行。全绿即可放心 apply；有 error 按规则号展开看全文，底部有 R1-R12 图例。</Step>
@@ -54,7 +60,7 @@ export default function ManualPage() {
               </div>
             ))}
           </Space>
-          <div style={{ marginTop: 10, fontSize: 12, color: '#8c96a6' }}>
+          <div style={{ marginTop: 10, fontSize: 12, color: GRAY.weak }}>
             界面只是薄壳——每个操作都能复现为等价 CLI 命令（各页右上角「等价命令」按钮）。完整命令手册见 doc/dshctl-manual.md。
           </div>
         </Section>

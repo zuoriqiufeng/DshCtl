@@ -30,7 +30,8 @@ export function renderProfileManifest(domain: string): string {
     name: `dsh-profile-${domain}`,
     private: true,
     dependencies: { '@deepseek-ai/dsh-ops-app': 'file:../../bundles/ops-app' },
-    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-ops-app'], patchReload: 'live' } },
+    // v0.1.7 起 DshProfileManifest 只剩 bundles（patchReload 键已移除；config 监视由 base 层 hmr 行默认提供）
+    dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-ops-app'] } },
   }, null, 2) + '\n'
 }
 

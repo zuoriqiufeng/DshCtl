@@ -1,72 +1,73 @@
 import { useState, useEffect } from 'react'
 import { Layout, Menu, Typography, Tag, Space, theme, Badge, Drawer, Button, Empty } from 'antd'
-import { HomeOutlined, DatabaseOutlined, ApartmentOutlined, RocketOutlined, PlusOutlined, AppstoreOutlined, BookOutlined, BellOutlined } from '@ant-design/icons'
+import { HomeOutlined, ApartmentOutlined, RocketOutlined, AppstoreOutlined, BookOutlined, BellOutlined } from '@ant-design/icons'
 import Dashboard from './pages/Dashboard.tsx'
-import RegistryPage from './pages/Registry.tsx'
 import DomainsPage from './pages/Domains.tsx'
 import UpgradePage from './pages/Upgrade.tsx'
 import NewDomain from './pages/NewDomain.tsx'
 import PluginsPage from './pages/Plugins.tsx'
 import DomainDetail from './pages/DomainDetail.tsx'
-import { api, TAB_TILE_CSS, VERSION } from './api.tsx'
+import { GRAY, api, TAB_TILE_CSS, VERSION } from './api.tsx'
 import ManualPage from './pages/Manual.tsx'
 
 const { Sider, Header, Content, Footer } = Layout
 
 const MENU = [
   { key: 'dash', icon: <HomeOutlined />, label: '概览' },
-  { key: 'registry', icon: <DatabaseOutlined />, label: '实例登记' },
-  { key: 'domains', icon: <ApartmentOutlined />, label: '领域管理' },
+  { key: 'domains', icon: <ApartmentOutlined />, label: '领域' },
   { key: 'plugins', icon: <AppstoreOutlined />, label: '插件库' },
   { key: 'upgrade', icon: <RocketOutlined />, label: '升级对账' },
-  { key: 'newdomain', icon: <PlusOutlined />, label: '新建领域' },
   { key: 'manual', icon: <BookOutlined />, label: '使用手册' },
 ]
 
-/** 菜单分组（不改变 key/路由，仅信息架构） */
+/** 菜单分组（v0.5：实例登记并入概览、新建并入领域——7→5，旧 hash 链接兼容映射见 LEGACY_MENU） */
 const MENU_GROUPS = [
-  { label: '工作台', keys: ['dash', 'registry'] },
-  { label: '编排', keys: ['domains', 'plugins', 'newdomain'] },
+  { label: '工作台', keys: ['dash'] },
+  { label: '编排', keys: ['domains', 'plugins'] },
   { label: '运维', keys: ['upgrade'] },
   { label: '帮助', keys: ['manual'] },
 ]
 
+/** 旧菜单 key → 新去向（7→5 后旧链接不 404） */
+const LEGACY_MENU: Record<string, string> = { registry: 'dash', newdomain: 'domains' }
+
 const TITLES: Record<string, { title: string; sub: string }> = {
-  dash: { title: '概览', sub: '编排体系一屏总览：实例、领域、依赖健康与最近检查结果' },
-  registry: { title: '实例登记', sub: 'registry.yml 视图——哪些实例已登记、端口与托管状态' },
-  domains: { title: '领域管理', sub: '对账（check）、对比（diff）、编辑领域清单（domain.yml）' },
+  dash: { title: '概览', sub: '编排体系一屏总览：实例登记、领域健康、依赖状态与最近检查' },
+  domains: { title: '领域', sub: '列表 + 详情：编排画布 / 概览 / check 对账 / diff / 清单编辑 / 新建' },
   plugins: { title: '插件库', sub: '插件目录与核心必须件清单——编排时从这里选插件' },
   upgrade: { title: '升级对账', sub: 'harness 更新后跑一遍：哪些领域需要跟进、能否进入升级第 3 步' },
-  newdomain: { title: '新建领域', sub: '表单化创建一个新的编排领域清单' },
-  manual: { title: '使用手册', sub: '快速上手 · 页面速览 · DSH 体系 · 编排原理 · FAQ' },
+  manual: { title: '使用手册', sub: '快速上手 · 页面速览 · DSH 体系 · 两套控制台分工 · FAQ' },
 }
 
 type Notice = { key: string; level: 'error' | 'warn' | 'info'; title: string; detail: string; nav: string; domain?: string }
 
 /** URL hash ↔ 页面状态：#/plugins、#/domains?domain=ops&view=detail —— 刷新/分享链接不丢位置 */
 const MENU_KEYS = new Set(MENU.map((m) => m.key))
-function parseHash(): { menu: string; domain: string; domainView: 'list' | 'detail' } {
+export type DomainView = 'list' | 'detail' | 'new'
+function parseHash(): { menu: string; domain: string; domainView: DomainView } {
   const h = window.location.hash.replace(/^#\/?/, '')
   if (!h) return { menu: 'dash', domain: 'ops', domainView: 'list' }
   const [path, qs] = h.split('?')
   const sp = new URLSearchParams(qs ?? '')
+  const raw = path ?? ''
+  const menu = MENU_KEYS.has(raw) ? raw : LEGACY_MENU[raw] ?? 'dash'
+  const view = sp.get('view')
   return {
-    menu: MENU_KEYS.has(path ?? '') ? path! : 'dash',
+    menu,
     domain: sp.get('domain') || 'ops',
-    domainView: sp.get('view') === 'detail' ? 'detail' : 'list',
+    domainView: view === 'detail' ? 'detail' : view === 'new' || raw === 'newdomain' ? 'new' : 'list',
   }
 }
-function buildHash(menu: string, domain: string, domainView: 'list' | 'detail'): string {
+function buildHash(menu: string, domain: string, domainView: DomainView): string {
   if (menu === 'dash') return ''
-  if (menu === 'domains') return `#/${menu}?domain=${encodeURIComponent(domain)}${domainView === 'detail' ? '&view=detail' : ''}`
-  if (menu === 'newdomain') return `#/${menu}?domain=${encodeURIComponent(domain)}`
+  if (menu === 'domains') return `#/${menu}?domain=${encodeURIComponent(domain)}${domainView !== 'list' ? `&view=${domainView}` : ''}`
   return `#/${menu}`
 }
 
 export default function App() {
   const [menu, setMenu] = useState(() => parseHash().menu)
   const [domain, setDomain] = useState(() => parseHash().domain)
-  const [domainView, setDomainView] = useState<'list' | 'detail'>(() => parseHash().domainView)
+  const [domainView, setDomainView] = useState<DomainView>(() => parseHash().domainView)
   const [notices, setNotices] = useState<Notice[]>([])
   const [bellOpen, setBellOpen] = useState(false)
   const loadNotices = () => { void api<Notice[]>('/api/notices').then((r) => setNotices(r.data ?? [])).catch(() => setNotices([])) }
@@ -86,8 +87,10 @@ export default function App() {
   const goNotice = (n: Notice) => {
     ackNotices([n.key])
     setNotices((prev) => prev.filter((x) => x.key !== n.key))
-    setMenu(n.nav)
-    if (n.domain) { setDomain(n.domain); if (n.nav === 'domains') setDomainView('detail') }
+    // 旧 nav key（registry/newdomain）映射到 7→5 后的去向
+    const nav = LEGACY_MENU[n.nav] ?? n.nav
+    setMenu(nav)
+    if (n.domain) { setDomain(n.domain); if (nav === 'domains') setDomainView(n.nav === 'newdomain' ? 'new' : 'detail') }
     setBellOpen(false)
   }
   const { token } = theme.useToken()
@@ -127,7 +130,7 @@ export default function App() {
           <Space align="center" size={10}>
             <Typography.Text strong style={{ fontSize: 15 }}>{t.title}</Typography.Text>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t.sub}</Typography.Text>
-            {(menu === 'domains' || menu === 'newdomain') && <Tag color="blue">当前领域 · {domain}</Tag>}
+            {menu === 'domains' && <Tag color="blue">当前领域 · {domain}</Tag>}
           </Space>
           <Space size={16}>
             <Badge count={noticeCount} size="small" offset={[-4, 4]}>
@@ -138,16 +141,10 @@ export default function App() {
         </Header>
         <Content style={{ margin: 20, maxWidth: 1280, width: '100%', alignSelf: 'center' }}>
           {menu === 'dash' && <Dashboard onNav={setMenu} onOpenDomain={(d) => { setDomain(d); setDomainView('detail'); setMenu('domains') }} />}
-          {menu === 'registry' && <RegistryPage />}
-          {menu === 'domains' && (domainView === 'detail'
-            ? <DomainDetail domain={domain} onBack={() => setDomainView('list')} onNav={setMenu} />
-            : <DomainsPage domain={domain} setDomain={setDomain} onOpen={() => setDomainView('detail')} onNav={setMenu} />)}
+          {menu === 'domains' && <DomainsPage domain={domain} setDomain={setDomain} view={domainView} setView={setDomainView} onNav={setMenu} />}
           {menu === 'plugins' && <PluginsPage />}
           {menu === 'upgrade' && <UpgradePage />}
           {menu === 'manual' && <ManualPage />}
-          {menu === 'newdomain' && <NewDomain
-            onCreated={(n) => { setDomain(n); setDomainView('detail'); setMenu('domains') }}
-            onCancel={() => setMenu('domains')} />}
         </Content>
         <Footer style={{ textAlign: 'center', color: token.colorTextQuaternary, fontSize: 12, background: 'transparent', padding: '12px 24px' }}>
           dshctl {VERSION} · 清单驱动 / 幂等生成 / 对账校验 / 插件库
@@ -170,7 +167,7 @@ export default function App() {
                         border: `1px solid ${meta.color}33`, borderLeft: `3px solid ${meta.color}`, background: '#fff',
                       }}>
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{n.title}</div>
-                        <div style={{ fontSize: 12, color: '#8c96a6', marginTop: 2 }}>{n.detail}</div>
+                        <div style={{ fontSize: 12, color: GRAY.weak, marginTop: 2 }}>{n.detail}</div>
                       </div>
                     ))}
                   </Space>

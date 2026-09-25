@@ -18,7 +18,7 @@ type SlotsMap = Record<string, { desc?: string; members: string[] }>
 /** 目录分组：已知分类有序展示，未知归「其他」 */
 const CATEGORY_ORDER = ['知识网', '对外 API', '技能管理']
 const CATEGORY_COLOR: Record<string, string> = { '知识网': '#13c2c2', '对外 API': '#1677ff', '技能管理': '#722ed1' }
-const catColor = (c: string) => CATEGORY_COLOR[c] ?? '#8c96a6'
+const catColor = (c: string) => CATEGORY_COLOR[c] ?? GRAY.weak
 
 /** 正方形层次卡：色带头像 + 单行 id/描述省略 + 分隔线底条（全文点详情看） */
 function PluginTile({ p, onClick }: { p: Plugin; onClick: () => void }) {
@@ -34,7 +34,7 @@ function PluginTile({ p, onClick }: { p: Plugin; onClick: () => void }) {
       {/* 第 1 层：分类色带头像 */}
       <div style={{
         padding: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8,
-        background: `linear-gradient(180deg, ${color}14, transparent)`,
+        background: `${color}0f`,
       }}>
         <div style={{
           width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -140,7 +140,7 @@ function MethodCard({ color, icon, title, use, steps, children }: {
         }}>{icon}</div>
         <div style={{ minWidth: 0 }}>
           <Typography.Text strong style={{ fontSize: 15 }}>{title}</Typography.Text>
-          <div style={{ fontSize: 12, color: '#8c96a6' }}>{use}</div>
+          <div style={{ fontSize: 12, color: GRAY.weak }}>{use}</div>
         </div>
       </div>
       <div style={{ background: '#f7f9fc', border: '1px solid #eef1f6', borderRadius: 8, padding: '10px 14px', margin: '16px 0' }}>
@@ -562,8 +562,8 @@ export default function PluginsPage() {
                       }}>
                         <div style={{
                           width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: 'linear-gradient(135deg, #722ed1, #13c2c2)', color: '#fff', fontSize: 20,
-                          boxShadow: '0 2px 8px rgba(114,46,209,.18)',
+                          background: '#722ed11f', color: SEM.purple, fontSize: 20,
+                          boxShadow: '0 0 0 3px #fff',
                         }}><SafetyCertificateOutlined /></div>
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <Typography.Text strong style={{ fontSize: 16 }}>{selectedEntry.id}</Typography.Text>
@@ -640,7 +640,7 @@ export default function PluginsPage() {
               }}>{(detail.id[0] ?? '?').toUpperCase()}</div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Typography.Text strong style={{ fontSize: 16 }}>{detail.id}</Typography.Text>
-                {detail.name && <div style={{ fontSize: 12, color: '#8c96a6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.name}</div>}
+                {detail.name && <div style={{ fontSize: 12, color: GRAY.weak, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detail.name}</div>}
               </div>
               <Tag color={detail.trusted ? 'green' : 'orange'} style={{ marginInlineEnd: 0 }}>
                 {detail.trusted ? '已信任' : '未信任——核实后再信任'}
@@ -712,8 +712,8 @@ export default function PluginsPage() {
             }}>
               <div style={{
                 width: 46, height: 46, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: `linear-gradient(135deg, ${SEM.cyan}, ${SEM.cyan}b3)`, color: '#fff', fontSize: 20,
-                boxShadow: `0 4px 12px ${SEM.cyan}38`,
+                background: `${SEM.cyan}1f`, color: SEM.cyan, fontSize: 20,
+                boxShadow: '0 0 0 3px #fff',
               }}><SwapOutlined /></div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Space size={8} align="center" wrap>

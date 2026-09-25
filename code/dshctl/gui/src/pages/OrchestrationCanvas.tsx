@@ -3,7 +3,7 @@ import { Drawer, Button, Space, Typography, Tag, Tooltip } from 'antd'
 import { LockOutlined, UnlockOutlined, SaveOutlined, NodeIndexOutlined } from '@ant-design/icons'
 import { ReactFlow, Background, Controls, MiniMap, Handle, Position, type Node, type Edge, type NodeProps, type NodeChange, applyNodeChanges } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { api, CommandChip, Hint, type Spec } from '../api.tsx'
+import { GRAY, api, CommandChip, Hint, type Spec } from '../api.tsx'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -29,7 +29,7 @@ function FlowNode({ data }: NodeProps<Node<FlowData>>) {
         <span style={{ fontWeight: 600, fontSize: 14 }}>{data.label}</span>
         {data.badge && <span style={{ fontSize: 11.5, padding: '0 6px', borderRadius: 6, background: s.bg, color: s.color, whiteSpace: 'nowrap' }}>{data.badge}</span>}
       </div>
-      {data.sub && <div style={{ fontSize: 11.5, color: '#8c96a6', marginTop: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.sub}</div>}
+      {data.sub && <div style={{ fontSize: 11.5, color: GRAY.weak, marginTop: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.sub}</div>}
       <Handle type="source" position={Position.Right} style={{ background: s.color, width: 8, height: 8, border: 'none' }} />
     </div>
   )
@@ -129,7 +129,7 @@ export default function OrchestrationCanvas({ domain, spec, onSpecChange }: { do
         </Tooltip>
         {dirty && <Button size="small" type="primary" icon={<SaveOutlined />} onClick={save}>保存顺序</Button>}
       </div>
-      <div style={{ position: 'absolute', bottom: 10, left: 12, zIndex: 5, display: 'flex', gap: 10, fontSize: 12, color: '#8c96a6', background: '#ffffffe6', padding: '4px 10px', borderRadius: 8, alignItems: 'center' }}>
+      <div style={{ position: 'absolute', bottom: 10, left: 12, zIndex: 5, display: 'flex', gap: 10, fontSize: 12, color: GRAY.weak, background: '#ffffffe6', padding: '4px 10px', borderRadius: 8, alignItems: 'center' }}>
         <span><span style={{ display: 'inline-block', width: 14, height: 2, background: '#91caff', verticalAlign: 'middle' }} /> 依赖</span>
         <span><span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed #b37feb', verticalAlign: 'middle' }} /> 声明</span>
         <Hint title="四层：能力包（紫）→ 领域插件（蓝）→ domain-api（粉）→ 外部依赖（橙）；实线=自动推导依赖，虚线=插件库 depends_on 声明" />

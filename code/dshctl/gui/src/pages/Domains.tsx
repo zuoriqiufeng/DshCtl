@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Tabs, Button, Empty, Skeleton, Table, Space, Typography, Collapse, Segmented, Tooltip, Badge, Popconfirm, App as AntApp } from 'antd'
 import { PlayCircleOutlined, ReloadOutlined, DiffOutlined, EditOutlined, CheckCircleOutlined, PlusOutlined, FileTextOutlined, RightOutlined, FolderOpenOutlined, StopOutlined, PoweroffOutlined, RedoOutlined, ThunderboltOutlined, DashboardOutlined, ApiOutlined, AppstoreOutlined } from '@ant-design/icons'
-import { api, PageHead, PageCard, LevelDot, RuleLegend, StatBand, cardStyle, Hint, StatusRow, CommandChip, StateDot, CodeBlock, EmptyState, StatusChip, type Spec } from '../api.tsx'
+import { GRAY, api, PageHead, PageCard, LevelDot, RuleLegend, StatBand, cardStyle, Hint, StatusRow, CommandChip, StateDot, CodeBlock, EmptyState, StatusChip, type Spec } from '../api.tsx'
 import DomainForm from './DomainForm.tsx'
+import DomainDetail from './DomainDetail.tsx'
+import NewDomain from './NewDomain.tsx'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -23,7 +25,7 @@ function RunBadge({ s, big }: { s: InstStatus | null; big?: boolean }) {
     ? { color: '#faad14', label: '不可判定' }
     : s.unitActive
       ? { color: '#52c41a', label: '运行中' }
-      : { color: '#8c96a6', label: '已停止' }
+      : { color: GRAY.weak, label: '已停止' }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: big ? 10 : 6 }}>
       <span style={{ width: big ? 12 : 8, height: big ? 12 : 8, borderRadius: '50%', background: color, boxShadow: `0 0 0 ${big ? 5 : 3}px ${color}22` }} />
@@ -75,7 +77,7 @@ export function OverviewTab({ domain, onStatusChange }: { domain: string; onStat
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={14}>
       {/* 运行状态卡 */}
-      <PageCard size="small" title={<Space><PoweroffOutlined style={{ color: st?.unitActive ? '#52c41a' : '#8c96a6' }} /><span>运行状态</span></Space>}
+      <PageCard size="small" title={<Space><PoweroffOutlined style={{ color: st?.unitActive ? '#52c41a' : GRAY.weak }} /><span>运行状态</span></Space>}
         extra={<Button size="small" icon={<ReloadOutlined />} onClick={load}>刷新</Button>}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
@@ -136,7 +138,7 @@ export function OverviewTab({ domain, onStatusChange }: { domain: string; onStat
             <InfoItem label="guard" value={String(spec.guard?.rule_source ?? '—')} />
             <InfoItem label="preset" value={String(spec.preset?.source ?? '—')} />
             <div>
-              <div style={{ fontSize: 12, color: '#8c96a6' }}>capabilities</div>
+              <div style={{ fontSize: 12, color: GRAY.weak }}>capabilities</div>
               <Space size={4} wrap style={{ marginTop: 2 }}>
                 <Tagish>core（隐含）</Tagish>
                 {((spec.capabilities ?? []) as string[]).filter((c) => c !== 'core').map((c) => <Tagish key={c}>{c}</Tagish>)}
@@ -168,7 +170,7 @@ export function OverviewTab({ domain, onStatusChange }: { domain: string; onStat
                       : !e.trusted ? <Tagish tone="orange">untrusted（R12 warn）</Tagish>
                         : <Tagish tone="green">在库 · {e.source ?? 'local'}</Tagish>}
                   </div>
-                  <div style={{ fontSize: 12, color: '#8c96a6', marginTop: 8, display: 'flex', alignItems: 'center' }}>
+                  <div style={{ fontSize: 12, color: GRAY.weak, marginTop: 8, display: 'flex', alignItems: 'center' }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.path.split('/').slice(-2).join('/')}</span>
                     <Hint title={pl.path} />
                   </div>
@@ -191,7 +193,7 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   const short = isPath ? value.split('/').filter(Boolean).slice(-2).join('/') : value
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 12, color: '#8c96a6' }}>{label}</div>
+      <div style={{ fontSize: 12, color: GRAY.weak }}>{label}</div>
       <Tooltip title={isPath ? value : undefined}>
         <div style={{ marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{short}</div>
       </Tooltip>
@@ -350,11 +352,11 @@ function DomainListItem({ d, lc, run, active, onClick }: { d: string; lc: LastCh
         {lc?.errors ? <Badge count={lc.errors} color="#ff4d4f" size="small" style={{ marginRight: 0 }} /> : null}
         {lc?.warns && !lc?.errors ? <Badge count={lc.warns} color="#faad14" size="small" style={{ marginRight: 0 }} /> : null}
       </div>
-      <div style={{ fontSize: 12, color: '#8c96a6', marginTop: 3, paddingLeft: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ fontSize: 12, color: GRAY.weak, marginTop: 3, paddingLeft: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
         <span>{lc ? `${lc.at} · ${lc.errors}e/${lc.warns}w` : '未检查'}</span>
         {run && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <StateDot level={run.unitActive === true ? 'pass' : run.unitActive === false ? 'unknown' : 'warn'} size={6} text={<span style={{ fontSize: 12, color: '#8c96a6' }}>{run.unitActive === true ? '运行中' : run.unitActive === false ? '已停' : '未知'}</span>} />
+            <StateDot level={run.unitActive === true ? 'pass' : run.unitActive === false ? 'unknown' : 'warn'} size={6} text={<span style={{ fontSize: 12, color: GRAY.weak }}>{run.unitActive === true ? '运行中' : run.unitActive === false ? '已停' : '未知'}</span>} />
           </span>
         )}
       </div>
@@ -362,7 +364,7 @@ function DomainListItem({ d, lc, run, active, onClick }: { d: string; lc: LastCh
   )
 }
 
-export default function DomainsPage({ domain, setDomain, onOpen, onNav }: { domain: string; setDomain: (d: string) => void; onOpen: (d: string) => void; onNav?: (k: string) => void }) {
+export default function DomainsPage({ domain, setDomain, view, setView, onNav }: { domain: string; setDomain: (d: string) => void; view: 'list' | 'detail' | 'new'; setView: (v: 'list' | 'detail' | 'new') => void; onNav?: (k: string) => void }) {
   const [domains, setDomains] = useState<string[]>([])
   const [statuses, setStatuses] = useState<Record<string, LastCheck | null>>({})
   const [runs, setRuns] = useState<Record<string, InstStatus>>({})
@@ -376,28 +378,33 @@ export default function DomainsPage({ domain, setDomain, onOpen, onNav }: { doma
     }).catch(() => { /* 状态面降级 */ })
   }
   useEffect(() => { void loadDomains() }, [])
-  const open = (d: string) => { setDomain(d); onOpen(d) }
+  const open = (d: string) => { setDomain(d); setView('detail') }
+  const right = view === 'new'
+    ? <NewDomain onCreated={(n) => { setDomain(n); setView('detail') }} onCancel={() => setView('list')} />
+    : view === 'detail' && domain
+      ? <DomainDetail domain={domain} onBack={() => setView('list')} onNav={onNav} />
+      : <EmptyState icon={<FolderOpenOutlined />} title="点击左侧领域查看详情"
+          desc="详情页包含：编排画布（拖拽排序/依赖连线）· 概览（状态/起停/冒烟/插件）· check 对账 · diff 对比 · 清单编辑"
+          action={<Button type="primary" icon={<PlusOutlined />} onClick={() => setView('new')}>新建领域</Button>} />
   return (
     <div>
-      <PageHead title="领域管理" desc="选择领域进入详情——编排画布 / 概览 / 对账 / 对比 / 编辑"
-        cmd="dshctl registry --json" icon={<FolderOpenOutlined />} iconColor="#1677ff"
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => onNav?.('newdomain')}>新建领域</Button>} />
-      {/* 等高双栏（stretch + 定高 480，底边对齐；左列表内滚） */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', height: 480 }}>
-        <div style={{ width: 300, flexShrink: 0, ...cardStyle, background: '#fff', padding: 12, boxSizing: 'border-box', overflow: 'auto' }}>
+      <PageHead title="领域" desc="列表 + 详情——编排画布 / 概览 / 对账 / 对比 / 编辑 / 新建"
+        cmd="dshctl domain list --json" icon={<FolderOpenOutlined />} iconColor="#1677ff"
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setView('new')}>新建领域</Button>} />
+      {/* 真主从：左列表常驻，右栏在 空态/详情/新建 之间切换（v0.4 前右栏是死区、详情整页替换） */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', minHeight: 480 }}>
+        <div style={{ width: 300, flexShrink: 0, alignSelf: 'flex-start', ...cardStyle, background: '#fff', padding: 12, boxSizing: 'border-box', overflow: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 6px 10px' }}>
             <Typography.Text strong style={{ fontSize: 14 }}>领域（{domains.length}）</Typography.Text>
             <Tooltip title="刷新列表与运行状态"><Button size="small" type="text" icon={<ReloadOutlined />} onClick={loadDomains} /></Tooltip>
           </div>
           {domains.length === 0 && <Typography.Text type="secondary" style={{ fontSize: 13, padding: '0 6px' }}>暂无领域——点右上「新建领域」开始</Typography.Text>}
           {domains.map((d) => (
-            <DomainListItem key={d} d={d} lc={statuses[d]} run={runs[d]} active={domain === d} onClick={() => open(d)} />
+            <DomainListItem key={d} d={d} lc={statuses[d]} run={runs[d]} active={view !== 'new' && domain === d} onClick={() => open(d)} />
           ))}
         </div>
-        <div style={{ flex: 1, minWidth: 0, ...cardStyle, background: '#fff', padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box' }}>
-          <EmptyState icon={<FolderOpenOutlined />} title="点击左侧领域查看详情"
-            desc="详情页包含：编排画布（拖拽排序/依赖连线）· 概览（状态/起停/冒烟/插件）· check 对账 · diff 对比 · 清单编辑"
-            action={<Button type="primary" icon={<PlusOutlined />} onClick={() => onNav?.('newdomain')}>新建领域</Button>} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {right}
         </div>
       </div>
     </div>

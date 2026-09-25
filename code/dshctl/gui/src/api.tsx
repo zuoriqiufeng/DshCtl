@@ -22,9 +22,28 @@ export const SEM_TEXT = { success: '#1b7a43', warning: '#b8860b', error: '#cf222
 /** 字号阶（全站只用这 8 档） */
 export const FONT_SIZE = { xs: 11.5, sm: 12, base: 13, md: 14, lg: 15, xl: 18, xxl: 22, num: 26 } as const
 
-export async function api<T>(path: string, opts?: RequestInit): Promise<{ data: T; equivalentCommand?: string; error?: string; errors?: string[]; hint?: string }> {
-  const r = await fetch(path, opts)
+const KEY_STORE = 'dshctl-gui-key'
+
+function authHeaders(): Record<string, string> {
+  const k = localStorage.getItem(KEY_STORE)
+  return k ? { Authorization: `Bearer ${k}` } : {}
+}
+
+export function setGuiKey(k: string): void { localStorage.setItem(KEY_STORE, k) }
+
+/** 401 时引导输入 key 并重试一次（仅配置了 --key / DSHCTL_GUI_KEY 的部署会遇到） */
+async function apiOnce<T>(path: string, opts?: RequestInit): Promise<{ data: T; equivalentCommand?: string; error?: string; errors?: string[]; hint?: string }> {
+  const r = await fetch(path, { ...opts, headers: { ...authHeaders(), ...(opts?.headers ?? {}) } })
   return r.json()
+}
+
+export async function api<T>(path: string, opts?: RequestInit): Promise<{ data: T; equivalentCommand?: string; error?: string; errors?: string[]; hint?: string }> {
+  let r = await apiOnce<T>(path, opts)
+  if (r.error?.startsWith('unauthorized')) {
+    const k = window.prompt('GUI 鉴权：输入访问 Key（服务端 --key 或 DSHCTL_GUI_KEY 配置的值）')
+    if (k) { setGuiKey(k); r = await apiOnce<T>(path, opts) }
+  }
+  return r
 }
 
 /** 统一卡片风格：白底 1px hairline + 零阴影（Linear/Geist 范式——层次靠边框与背景色差） */
@@ -273,7 +292,7 @@ export function TabTile({ icon, title, sub, color = '#1677ff' }: { icon: ReactNo
       }}>{icon}</span>
       <span style={{ textAlign: 'left', lineHeight: 1.25 }}>
         <span className="tab-tile-title" style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#16202b' }}>{title}</span>
-        {sub && <span className="tab-tile-sub" style={{ display: 'block', fontSize: 11.5, color: '#8c96a6' }}>{sub}</span>}
+        {sub && <span className="tab-tile-sub" style={{ display: 'block', fontSize: 11.5, color: GRAY.weak }}>{sub}</span>}
       </span>
     </span>
   )

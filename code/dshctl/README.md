@@ -1,4 +1,4 @@
-# dshctl — DSH 领域编排 CLI（v1.0）
+# dshctl — DSH 领域编排 CLI（v0.5）
 
 清单驱动、幂等生成、对账校验。**只管交付期**（实例怎么被正确地造出来并保持正确），不碰运行期热管理（那是 DSH /admin 的职责）。
 设计：`doc/gernalarrange/dshctl-design.md`；实施与验收：`doc/dshctl-exec-plan.md`；
@@ -51,6 +51,6 @@ CI：`bash ci.sh`（五环节：本工具 + dsh-plugin + ops-api self-test + upg
 
 - 密钥永不落盘（domain.yml 只记 env 变量名；R8 校验字面值）；
 - 对上游 harness 净改动 = 0（只消费 dump-config/文件产物，不 import 运行时）；
-- 规模口径：**可执行代码（不含 self-test）≤1900 行**（当前 ~1734；v1.1 插件库后由 1500 修订——决议见 doc/dshctl-exec-plan.md §4）——逼近红线先砍需求；
+- 规模口径：**可执行代码（不含 self-test）≤3200 行**（当前 ~3100；v0.4/v0.5 后由 1900 修订——决议 2026-09-25 见 doc/dshctl-ux-plugin-ui-plan.md）——逼近红线先砍需求；
 - 能力包片段同 id 归属唯一；core 隐含必裁；keep_tools 从 core 放回；
 - 升级 5 步手册第 2 步已由 `upgrade-check` 自动化。

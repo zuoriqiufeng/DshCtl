@@ -103,5 +103,5 @@ W4.2→W4.3→W4.4
 >   实施中被运行旧版护栏连拦两次，正是该误伤面的实证）。
 > - W3 完成：`presets/i2stream-ops/`（preset.yml + agent.cordis.yml）+ `scripts/gen-hotpath-prompt.ts`
 >   （生成 hotpath.md ≈1046 token 并注入 persona 标记块；操作→Skill 8 行 / 症状 5 行 / 错误码 12 行）。
-> - 遗留：web profile `patchReload: live` 为 **config-only HMR**（源码模块不替换）——新代码需重启
+> - 遗留：web profile `patchReload: live` 为 **config-only HMR**（源码模块不替换）——新代码需重启（注：`patchReload` 键已在 harness v0.1.7 移除——config 监视改由 base 层 hmr 行默认提供，详见 dsh-plugin-reading-guide §5）
 >   `pnpm dsh web` 后生效；重启后在 GUI 选 i2stream-ops preset 跑 4 题计时回填。

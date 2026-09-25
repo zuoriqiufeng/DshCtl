@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Card, Input, Button, Space, Typography, Steps, App as AntApp } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined, LeftOutlined, RightOutlined, PlusOutlined } from '@ant-design/icons'
-import { api, PageHead, type Spec, StepBadge } from '../api.tsx'
+import { GRAY, api, PageHead, type Spec, StepBadge } from '../api.tsx'
 import { SecBasic, SecCaps, SecGuard, SecContracts, SecPreset, SecPlugins, SecApi, SecMemory, SecPorts, SecDeps, type SecProps } from './DomainForm.tsx'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -85,7 +85,7 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
           {step === 3 && <><SecPlugins {...p} /><SecApi {...p} /><SecMemory {...p} /></>}
           {step === 4 && <><SecPorts {...p} /><SecDeps {...p} /></>}
           {step === 4 && (
-            <div style={{ marginTop: 10, fontSize: 13, color: '#8c96a6' }}>
+            <div style={{ marginTop: 10, fontSize: 13, color: GRAY.weak }}>
               创建后：dshctl check &lt;name&gt; → apply --dry-run → apply --yes → smoke
             </div>
           )}

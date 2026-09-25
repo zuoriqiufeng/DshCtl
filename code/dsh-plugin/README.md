@@ -50,7 +50,7 @@ dsh-plugin/
         guardBlock: true
 ```
 
-`patchReload: live`，保存即热重载。
+`patchReload: live`，保存即热重载。（注：`patchReload` 键已在 harness v0.1.7 移除——config 监视改由 base 层 hmr 行默认提供，详见 dsh-plugin-reading-guide §5）
 
 ## Config
 

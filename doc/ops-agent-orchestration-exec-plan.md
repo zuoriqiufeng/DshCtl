@@ -78,7 +78,7 @@ cat > $H/profiles/ops/package.json <<'EOF'
   "name": "dsh-profile-ops",
   "private": true,
   "dependencies": {},
-  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"], "patchReload": "live" } }
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"], "patchReload": "live" } }  （注：`patchReload` 键已在 harness v0.1.7 移除——config 监视改由 base 层 hmr 行默认提供，详见 dsh-plugin-reading-guide §5）
 }
 EOF
 # 3) 空 cordis.yml + 空 patch（initProfile 同款内容）

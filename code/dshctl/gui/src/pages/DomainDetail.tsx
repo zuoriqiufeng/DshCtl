@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Tabs, Button, Space, Typography, Skeleton } from 'antd'
 import { ArrowLeftOutlined, DashboardOutlined, CheckCircleOutlined, DiffOutlined, EditOutlined, NodeIndexOutlined } from '@ant-design/icons'
-import { api, PageHead, LevelDot, TabTile, StateDot, type Spec } from '../api.tsx'
+import { GRAY, api, PageHead, LevelDot, TabTile, StateDot, type Spec } from '../api.tsx'
 import { OverviewTab, CheckTab, DiffTab, EditorTab, type InstStatus } from './Domains.tsx'
 import OrchestrationCanvas from './OrchestrationCanvas.tsx'
 
@@ -31,22 +31,22 @@ export default function DomainDetail({ domain, onBack, onNav }: { domain: string
       <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap', background: '#fff', border: '1px solid #e5e9f0', borderRadius: 12, padding: '14px 20px', marginBottom: 14, boxShadow: '0 1px 2px rgba(16,24,40,0.04)' }}>
         <Space size={20} wrap>
           <div>
-            <div style={{ fontSize: 12, color: '#8c96a6' }}>配置健康（check）</div>
+            <div style={{ fontSize: 12, color: GRAY.weak }}>配置健康（check）</div>
             {lc ? <LevelDot level={lc.result === 'pass' ? 'pass' : 'fail'} counts={`· ${lc.errors}e / ${lc.warns}w`} /> : <Typography.Text type="secondary" style={{ fontSize: 13 }}>未检查</Typography.Text>}
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#8c96a6' }}>进程状态</div>
+            <div style={{ fontSize: 12, color: GRAY.weak }}>进程状态</div>
             <Space size={6}>
               <StateDot level={st?.unitActive === true ? 'pass' : st?.unitActive === false ? 'warn' : 'unknown'} size={6} text={<span style={{ fontSize: 13 }}>{st?.unitActive === true ? '运行中' : st?.unitActive === false ? '已停止' : '不可判定'}</span>} />
               {st?.apiHealth && <Typography.Text type="success" style={{ fontSize: 12 }}>/health ✓</Typography.Text>}
             </Space>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#8c96a6' }}>最近 check</div>
+            <div style={{ fontSize: 12, color: GRAY.weak }}>最近 check</div>
             <Typography.Text style={{ fontSize: 13 }}>{lc?.at ?? '—'}</Typography.Text>
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#8c96a6' }}>unit</div>
+            <div style={{ fontSize: 12, color: GRAY.weak }}>unit</div>
             <Typography.Text code style={{ fontSize: 12 }}>{st?.unit ?? spec?.systemd_unit ?? '—'}</Typography.Text>
           </div>
         </Space>

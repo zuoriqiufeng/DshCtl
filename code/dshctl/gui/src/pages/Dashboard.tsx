@@ -14,6 +14,7 @@ interface Summary {
   unregisteredPorts: number[]
   sharedDeps: Array<{ name: string; url: string; ok: boolean }>
 }
+type RegEntry = { domain: string; dsh_home: string; ports?: { api?: number; gui?: number | null }; systemd_unit?: string; status?: string }
 type HistEntry = { domain: string; at: string; result: string; errors: number; warns: number }
 
 /** 统计卡：tinted 图标磁贴（去渐变去投影）+ tabular 大数字（footer 可放 chips 行） */
@@ -35,19 +36,20 @@ function StatTile({ icon, color, title, value, extra, valueColor, footer }: { ic
 }
 
 const QUICK = [
-  { key: 'domains', icon: <PlayCircleOutlined />, title: '领域管理', desc: 'check 逐规则对账 · diff 对比生成面 · 表单化编辑清单' },
+  { key: 'domains', icon: <PlayCircleOutlined />, title: '领域', desc: 'check 逐规则对账 · diff 对比生成面 · 表单化编辑清单 · 新建领域' },
+  { key: 'plugins', icon: <AppstoreOutlined />, title: '插件库', desc: '收编/上传/单元化 · 核心必须件 · 领域产出一键入库' },
   { key: 'upgrade', icon: <RocketOutlined />, title: '升级对账', desc: 'harness 更新后：全领域 roster 对账，给出需要跟进的清单' },
-  { key: 'plugins', icon: <AppstoreOutlined />, title: '插件库', desc: '收编/上传插件 · 核心必须件 · 领域产出一键入库' },
-  { key: 'newdomain', icon: <PlusOutlined />, title: '新建领域', desc: '向导五步创建 domain.yml（实例骨架走 apply）' },
 ]
 
 export default function Dashboard({ onNav, onOpenDomain }: { onNav: (k: string) => void; onOpenDomain: (d: string) => void }) {
   const { message } = AntApp.useApp()
   const [s, setS] = useState<Summary | null>(null)
   const [hist, setHist] = useState<HistEntry[]>([])
+  const [reg, setReg] = useState<RegEntry[]>([])
   const load = () => {
     void api<Summary>('/api/summary').then((r) => setS(r.data))
     void api<HistEntry[]>('/api/history').then((r) => setHist(r.data ?? []))
+    void api<{ instances: RegEntry[] }>('/api/registry').then((r) => setReg(r.data.instances ?? [])).catch(() => setReg([]))
   }
   useEffect(() => { load() }, [])
   if (!s) return <PageCard><div style={{ padding: 40, textAlign: 'center' }}><Typography.Text type="secondary">加载中…</Typography.Text></div></PageCard>
@@ -95,6 +97,20 @@ export default function Dashboard({ onNav, onOpenDomain }: { onNav: (k: string) 
             ) : (
               <Table rowKey="domain" dataSource={last} pagination={false} size="small"
                 onRow={(r) => ({ onClick: () => onOpenDomain((r as any).domain), style: { cursor: 'pointer' } })}
+                expandable={{
+                  rowExpandable: (r) => !!reg.find((x) => x.domain === (r as any).domain),
+                  expandedRowRender: (r) => {
+                    const e = reg.find((x) => x.domain === (r as any).domain)
+                    if (!e) return null
+                    return (
+                      <Space direction="vertical" size={4} style={{ fontSize: 12, color: GRAY.sub }}>
+                        <span>DSH_HOME：<Typography.Text code style={{ fontSize: 12 }}>{e.dsh_home}</Typography.Text></span>
+                        <span>systemd unit：<Typography.Text code style={{ fontSize: 12 }}>{e.systemd_unit ?? '未托管'}</Typography.Text> · 状态：{e.status === 'prod' ? '生产' : '试验'}</span>
+                        <span>等价：<Typography.Text code style={{ fontSize: 12 }}>dshctl registry --json</Typography.Text></span>
+                      </Space>
+                    )
+                  },
+                }}
                 columns={[
                   {
                     title: '领域', dataIndex: 'domain',
@@ -121,6 +137,12 @@ export default function Dashboard({ onNav, onOpenDomain }: { onNav: (k: string) 
                       )
                     },
                   },
+                  { title: '端口 / unit', render: (_, r) => {
+                    const e = reg.find((x) => x.domain === (r as any).domain)
+                    return e
+                      ? <span style={{ fontSize: 12, color: GRAY.sub }}>API {e.ports?.api ?? '—'} · {e.systemd_unit ?? 'headless'}</span>
+                      : <Typography.Text type="secondary" style={{ fontSize: 12 }}>未登记</Typography.Text>
+                  } },
                   { title: '最近 7 次', render: (_, r) => <HistoryDots entries={recent7((r as any).domain)} /> },
                   { title: '日期', width: 110, render: (_, r) => <Typography.Text type="secondary" style={{ fontSize: 12 }}>{(r.last_check as any).at}</Typography.Text> },
                 ]} />
@@ -144,7 +166,7 @@ export default function Dashboard({ onNav, onOpenDomain }: { onNav: (k: string) 
             </Space>
             {!!s.unregisteredPorts.length && (
               <div style={{ marginTop: 10, fontSize: 12, color: GRAY.sub }}>
-                未登记端口 {s.unregisteredPorts.join(', ')}<Hint title="归属见实例登记页；转正时回收或登记" />
+                未登记端口 {s.unregisteredPorts.join(', ')}<Hint title="归属见上方表格展开行；转正时回收或登记" />
               </div>
             )}
           </PageCard>

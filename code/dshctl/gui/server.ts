@@ -113,11 +113,23 @@ const PORT = portArg > 0 ? Number(process.argv[portArg + 1]) : 8780
 const hostArg = process.argv.indexOf('--host')
 const HOST = hostArg > 0 ? process.argv[hostArg + 1]! : '127.0.0.1'
 const LAN = HOST !== '127.0.0.1' && HOST !== 'localhost'
+const keyArg = process.argv.indexOf('--key')
+/** 鉴权 key：--key 或 DSHCTL_GUI_KEY。非回环绑定必须配置（fail-loud，对齐 ops-api 双 key 模式） */
+const GUI_KEY = keyArg > 0 ? process.argv[keyArg + 1]! : process.env.DSHCTL_GUI_KEY ?? ''
+if (LAN && !GUI_KEY) {
+  console.error(`gui: 非回环绑定（${HOST}）必须配置鉴权 key——--key <key> 或 DSHCTL_GUI_KEY（GUI 具备清单写与 systemctl 起停能力，裸奔拒绝启动）`)
+  process.exit(2)
+}
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`)
   const p = url.pathname
   try {
+    // /api/* 鉴权：配置了 key 时校验 Bearer（静态资源放行——页面壳无数据，401 由前端引导输 key）
+    if (GUI_KEY && p.startsWith('/api/')) {
+      const auth = req.headers.authorization ?? ''
+      if (auth !== `Bearer ${GUI_KEY}`) return json(res, 401, { error: 'unauthorized——GUI Key 缺失或不正确（--key / DSHCTL_GUI_KEY）' })
+    }
     // ── 只读 API ──
     if (p === '/api/registry') {
       return json(res, 200, { data: loadRegistry(REGISTRY), equivalentCommand: 'dshctl registry --json' })
@@ -448,5 +460,5 @@ createServer(async (req, res) => {
   }
 }).listen(PORT, HOST, () => {
   console.log(`dshctl GUI: http://${HOST}:${PORT} （薄壳：操作可复现为等价 CLI 命令）`)
-  if (LAN) console.log('⚠ 安全提示：GUI 无鉴权且具备清单写能力——非回环绑定仅限可信内网/临时演示；长期开放请前置反代+鉴权或防火墙限源。')
+  console.log(GUI_KEY ? `鉴权：已启用（Bearer key；非回环绑定 fail-loud 强制）` : `鉴权：未启用（仅回环绑定可用；非回环绑定会拒绝启动）`)
 })
