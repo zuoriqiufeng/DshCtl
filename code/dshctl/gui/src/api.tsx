@@ -24,14 +24,33 @@ export const FONT_SIZE = { xs: 11.5, sm: 12, base: 13, md: 14, lg: 15, xl: 18, x
 
 const KEY_STORE = 'dshctl-gui-key'
 
+/** 容错粘贴：首尾空白、整行 `DSHCTL_GUI_KEY=...`、引号包裹都归一成纯 key */
+function normalizeKey(k: string): string {
+  let s = k.trim()
+  if (s.startsWith('DSHCTL_GUI_KEY=')) s = s.slice('DSHCTL_GUI_KEY='.length).trim()
+  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) s = s.slice(1, -1).trim()
+  return s
+}
+
 function authHeaders(): Record<string, string> {
   const k = localStorage.getItem(KEY_STORE)
   return k ? { Authorization: `Bearer ${k}` } : {}
 }
 
-export function setGuiKey(k: string): void { localStorage.setItem(KEY_STORE, k) }
+export function setGuiKey(k: string): void { localStorage.setItem(KEY_STORE, normalizeKey(k)) }
 
-/** 401 时引导输入 key 并重试一次（仅配置了 --key / DSHCTL_GUI_KEY 的部署会遇到） */
+/** 401 时引导输入 key 并重试一次（仅配置了 --key / DSHCTL_GUI_KEY 的部署会遇到）。
+ * 并发请求共享同一次弹窗（页面加载会并发打多个 API，各自弹窗会形成"输不完"的假死）；
+ * 重试仍 401 → 不再弹，把错误交给页面展示（key 不对就该让用户看清原因）。 */
+let keyPrompt: Promise<string | null> | null = null
+function promptForKey(): Promise<string | null> {
+  if (!keyPrompt) {
+    keyPrompt = Promise.resolve(window.prompt('GUI 鉴权：粘贴访问 Key（dshctl- 开头；整行 DSHCTL_GUI_KEY=... 也可以）') ?? '')
+      .finally(() => { setTimeout(() => { keyPrompt = null }, 0) })
+  }
+  return keyPrompt
+}
+
 async function apiOnce<T>(path: string, opts?: RequestInit): Promise<{ data: T; equivalentCommand?: string; error?: string; errors?: string[]; hint?: string }> {
   const r = await fetch(path, { ...opts, headers: { ...authHeaders(), ...(opts?.headers ?? {}) } })
   return r.json()
@@ -40,7 +59,7 @@ async function apiOnce<T>(path: string, opts?: RequestInit): Promise<{ data: T; 
 export async function api<T>(path: string, opts?: RequestInit): Promise<{ data: T; equivalentCommand?: string; error?: string; errors?: string[]; hint?: string }> {
   let r = await apiOnce<T>(path, opts)
   if (r.error?.startsWith('unauthorized')) {
-    const k = window.prompt('GUI 鉴权：输入访问 Key（服务端 --key 或 DSHCTL_GUI_KEY 配置的值）')
+    const k = await promptForKey()
     if (k) { setGuiKey(k); r = await apiOnce<T>(path, opts) }
   }
   return r
