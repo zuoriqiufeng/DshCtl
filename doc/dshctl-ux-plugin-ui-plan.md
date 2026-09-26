@@ -123,6 +123,8 @@
 5. **pnpm install 在无 TTY 下拒绝清理 node_modules**（ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY）——上游升级后 `pnpm dsh` 自动 install 会因此失败 → dump-config 降级。CI=true 环境变量可解；本次已补跑（升级第 1 步）。
 6. **apply 的部分写盘**：renderProfilePatch 报错时 bundles/ 已写、patch 未写（apply.ts 先 bundles 后 patch）——v0.4 骨架默认不含 api_server 后不再触发，但顺序问题仍在（存量，另计）。
 7. **dsh-plugin self-test 9 条存量红**：共享 BKN（/hdd/demo/public/i2stream-bkn）2026-09-24 本体分层重构（19→26 号 + 批 2）导致 resolver/retrieval 断言失配——与本计划无关，另立修复项（详见项目记忆）。
+8. **harness 全量构建（pnpm build）在 v0.1.7 不可直接用**，三处连环坑：① 无 TTY 时 pnpm install 拒清 node_modules（CI=true 解）；② 上游删包遗留孤儿 lib/（5 个包源码已迁走、lib 还在）卡死 tsdown 全量 glob（MISSING_EXPORT），删孤儿后解；③ 根包 @deepseek-ai/dsh-root 被根 tsdown 配置捎带构建但其 lib/types 永不存在（上游 CI 只跑 check:ci 走 src 别名，不跑全量构建——`pnpm build` 在上游 CI 矩阵里就没有被执行过）。**解法**：绕过根 workspace，逐包直跑 tsdown——host 面（tsc -b host 产 lib/types → tsdown 出 lib/index.js）+ client 面（tsc -b client → 各包 DSH_BUILD_FACE=client 出 lib/client.js，client 包不止 packages/client/，packages/api/ 下也有）。lib/ 为 gitignored 构建产物，不算源码改动。
+9. **transient unit 失败即消失**：dsh-ops-trial.service 是 systemd-run transient unit，崩溃后 unit 定义随之消失（`systemctl restart` 报 not found），必须用 run-ops-trial.sh start 重建（顺带重挂 EnvironmentFile）。
 
 ## 规模口径修订
 
@@ -134,5 +136,7 @@ README 维护约定「可执行代码 ≤1900 行」：本次后 dshctl 实际 ~
 - 2026-09-25 阶段 1 实施并验收（commit baee86d）：A1-A6 全过。
 - 2026-09-25 阶段 2 实施并验收（commit f9c2a6a）：B1-B6 全过；三插件已 scaffold、bkn-plugin 已 pack 验证。
 - 2026-09-25 阶段 3 实施并验收：C1-C6 全过；patchReload 死键清理完成。
-- 附带完成 harness 升级第 1 步（pnpm install，roster 缓存重建 v0.1.7-alpha.2，upgrade-check PASS）；
-  **升级第 3 步（重启 8643 试验实例）与现网 3080（/hdd/agent 树）未动**——待用户择时。
+- 附带完成 harness 升级第 1 步（pnpm install，roster 缓存重建 v0.1.7-alpha.2，upgrade-check PASS）。
+- 2026-09-26 用户拍板"全部重启"：升级第 3 步完成——8643 试验实例已切到 v0.1.7-alpha.2（补齐全仓 lib/ 构建），
+  health 200 + NRestarts=0 + check ops --ci 0 error；dshctl GUI 8780 已重启为最新代码，
+  绑定 0.0.0.0 + Bearer key（key 存 .dsh-home/gui.env，600）。现网 3080（/hdd/agent 另一棵树 v0.1.5-rc.1）按边界不动。

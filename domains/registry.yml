@@ -7,7 +7,7 @@ instances:
     systemd_unit: dsh-ops-trial.service
     status: trial
     last_check:
-      at: 2026-09-25
+      at: 2026-09-26
       result: pass
       errors: 0
       warns: 1
