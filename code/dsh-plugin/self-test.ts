@@ -7,7 +7,8 @@
  */
 
 import { writeFileSync } from 'node:fs'
-import { BKNResolver } from './resolver.ts'
+import { BKNResolver, bknWalkIssues } from './resolver.ts'
+import { validateBknContract, handleContractResult } from './bknContract.ts'
 import { RelationTraverser } from './relations.ts'
 import { ContextLoader, ToonFormatter, TrimFilter } from './contextLoader.ts'
 import {
@@ -193,7 +194,9 @@ console.log('\n[5] 阶段1新增: 场景匹配 / 兼容增强 / 前置提取 / b
   const compat = resolver.checkCompatibility('Oracle', 'SQLServer')
   check('checkCompatibility 含 charset_notes', compat.charset_notes !== undefined)
   const compatRisks = compat.risks as string[]
-  check('按库特殊约束数据驱动（SQLServer 场景 risks 非空）', compatRisks.length > 0, JSON.stringify(compatRisks.slice(0, 2)))
+  // 23 号方案：compatibility.bkn 值数据下延 Skill references，本体只回委托指针
+  check('按库特殊约束改值委托指针（risks 含 compatibility.md 指针）',
+    compatRisks.length > 0 && compatRisks.some((r) => String(r).includes('references/compatibility.md')), JSON.stringify(compatRisks.slice(0, 2)))
 
   // 库特化前置提取
   const prereqSec = resolver.getPrerequisites('create_rule')
@@ -284,7 +287,7 @@ console.log('\n[6] 阶段3 检索 bm25/retrieval/诊断导航')
   // 真实 BKN 文件: log-map.bkn 三表
   const nav = resolver.getLogMap('incremental_stuck')
   check('getLogMap 命中症状', nav.primary === 'iatrack', JSON.stringify(nav).slice(0, 120))
-  check('getLogMap 进程职责', Object.keys(nav.process_duties as object).length > 0)
+  check('getLogMap 进程职责', Object.keys((nav.process_duties as object) ?? {}).length > 0)
   check('getLogMap 级别调整', Array.isArray(nav.level_tuning) && (nav.level_tuning as unknown[]).length > 0)
   check('getLogMap 未命中为空', Object.keys(resolver.getLogMap('nonexistent_symptom')).length === 0)
 
@@ -306,7 +309,11 @@ console.log('\n[6] 阶段3 检索 bm25/retrieval/诊断导航')
 
   // extractBknContext（真实 risks/diagnostics.bkn）
   const ctx1 = extractBknContext(resolver, '-4002')
-  check('extractBknContext -4002 存在风险上下文', ctx1 !== null && ctx1.error_code === '-4002', JSON.stringify(ctx1).slice(0, 120))
+  // 25 号方案：锚点表已删——结构为「常量 + 边」（suspected_process 取自 suspected_in 边）
+  check('extractBknContext -4002 存在风险上下文（常量+边结构）',
+    ctx1 !== null && ctx1.error_code === '-4002'
+    && Array.isArray(ctx1.suspected_process) && (ctx1.suspected_process as string[]).includes('process:iatrack'),
+    JSON.stringify(ctx1).slice(0, 160))
   check('extractBknContext 无码', extractBknContext(resolver, undefined) === null)
 }
 
@@ -395,7 +402,8 @@ console.log('\n[8] 补全: 图边三源join / operation前置知识 / 纯函数'
   check('edges: start → rule_must_be_STOPPED', startRules.includes('rule_must_be_' + SP), JSON.stringify(startRules))
   check('edges: start → cannot_restart_' + S, startRules.includes('cannot_restart_' + S), JSON.stringify(startRules))
   check('edges: stop → must_use_stop_parse_yes', (edges.constraints['stop_sync_rule'] ?? []).includes('must_use_stop_parse_yes'))
-  check('edges: risks_of 解析（start → -4073）', (edges.risks['start_sync_rule'] ?? []).includes('-4073'), JSON.stringify(edges.risks['start_sync_rule']))
+  // 边目标带命名空间前缀（error:/risk:）是有意设计——图节点 ID 空间与裸错误码不同
+  check('edges: risks_of 解析（start → error:-4073）', (edges.risks['start_sync_rule'] ?? []).includes('error:-4073'), JSON.stringify(edges.risks['start_sync_rule']))
 
   // ── parseConstraintsDetail：详情表全行解析（含 forbidden_sequence 类型）──
   const details = parseConstraintsDetail(BKN_ROOT)
@@ -474,6 +482,49 @@ console.log('\n[9] whitelist 规则源（proposal §3.4 框架；SQL 域前置�
   check('guardDecision dispatch → whitelist', disp !== null && disp.ruleId === 'whitelist')
   const none = guardDecision('bash', { command: 'i2stream delete rule --name r1 while RUNNING' }, { enabled: true, block: true, bknRoot: BKN_ROOT, mutatingTools: ['bash'], ruleSource: 'none' })
   check('ruleSource=none 关闭规则', none === null)
+}
+
+console.log('\n[10] v26 契约校验：世代/目录/关键文件/区块 + strict/warn/off 处置')
+{
+  const { mkdirSync, mkdtempSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const fixture = (): string => mkdtempSync(join(tmpdir(), 'dshp-contract-'))
+
+  const mk = (root: string, over: { generation?: number; omit?: string; blankKey?: string } = {}): string => {
+    const gen = over.generation ?? 26
+    for (const d of ['objects', 'relations', 'actions', 'risks']) mkdirSync(join(root, d), { recursive: true })
+    writeFileSync(join(root, 'SCHEMA.md'), `# BKN 类型枚举标准（SCHEMA）\n\n> 2026-09-24（${gen} 号四元收敛终态）\n`)
+    writeFileSync(join(root, 'SKILL.md'), '# 导航\n')
+    for (const d of ['objects', 'relations', 'actions', 'risks']) writeFileSync(join(root, d, 'x.bkn'), '## X\n')
+    const req: Array<[string, string]> = [
+      ['objects/product.bkn', '## 产品定位\n'],
+      ['objects/syncrule.bkn', over.blankKey === '状态机' ? '（区块被抹）\n' : '## 状态机\n'],
+      ['relations/action_routing.bkn', 'constrained_by / risks_of\n'],
+      ['relations/process_topology.bkn', 'suspected_in\n'],
+      ['risks/constraints.bkn', '| Risk | 约束ID | 类型 | 约束 |\n'],
+      ['risks/prerequisites.bkn', '## 状态前置\n'],
+    ]
+    for (const [rel, body] of req) { if (over.omit === rel) continue; writeFileSync(join(root, rel), body) }
+    return root
+  }
+  const good = mk(join(fixture(), 'bkn'))
+  const r1 = validateBknContract(good)
+  check('契约：合格副本通过且世代=26', r1.ok && r1.generation === 26, JSON.stringify(r1.issues))
+  check('契约：不存在的根目录拒绝', !validateBknContract(join(good, 'nope')).ok)
+  check('契约：世代号 25（旧版）拒绝且点名', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { generation: 25 })); return !r.ok && r.issues.some((i) => i.includes('世代号 25')) })())
+  check('契约：缺关键文件点名', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { omit: 'risks/prerequisites.bkn' })); return !r.ok && r.issues.some((i) => i.includes('risks/prerequisites.bkn')) })())
+  check('契约：关键区块被抹点名（syncrule 状态机）', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { blankKey: '状态机' })); return !r.ok && r.issues.some((i) => i.includes('状态机')) })())
+
+  const logs: string[] = []
+  const logger = { info: (m: string) => { logs.push('I:' + m) }, error: (m: string) => { logs.push('E:' + m) } }
+  const bad = { ok: false, generation: 25, issues: ['示例问题'] }
+  check('契约：strict → fatal + 日志 error', handleContractResult(bad, 'strict', logger).fatal === true && logs.some((l) => l.startsWith('E:')))
+  check('契约：warn → 非 fatal 但日志 error', handleContractResult(bad, 'warn', logger).fatal === false && logs.filter((l) => l.startsWith('E:')).length >= 2)
+  const logsBefore = logs.length
+  check('契约：off → 不校验不记日志', handleContractResult(bad, 'off', logger).fatal === false && logs.length === logsBefore)
+  check('契约：合格 → info 通过语', handleContractResult({ ok: true, generation: 26, issues: [] }, 'strict', logger).fatal === false && logs.some((l) => l.includes('契约校验通过')))
+  check('契约：读取台账 API 在位（loadMisses/bknWalkIssues 非静默化）', Array.isArray(new BKNResolver('/hdd/demo/public/i2stream-bkn/bkn').loadMisses) && Array.isArray(bknWalkIssues))
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)

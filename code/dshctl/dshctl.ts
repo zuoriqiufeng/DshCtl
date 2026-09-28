@@ -86,7 +86,7 @@ const CMDS: CmdHelp[] = [
     detail: ['add 按参数形态自动判型：存在的目录/文件 → local 收编；*.zip → zip 导入；http(s):// 或 git@ → git 导入',
       'import / import-git 保留为显式别名（行为不变）；zip/git 导入默认 untrusted——核实后 trust',
       'scaffold = 把插件目录补成自描述单元（dsh.plugin.yml + package.json main/exports/files/peerDeps）',
-      'pack = tsc 构建出 lib/ + 生成组合包 patch + pnpm pack → tgz（上游②通道可消费）',
+      'pack <id> [--with-bkn [dir]] = tsc 构建 lib/ + 生成组合包 patch + pnpm pack → tgz（上游②通道可消费）；--with-bkn 把 BKN 快照内嵌包内 bkn/（换机自包含，源目录零污染）',
       'install = 把插件装进领域 domain.yml plugins[]（layout 决定 in-place / vendored 路径）'],
     examples: ['dshctl plugin list', 'dshctl plugin add --id bkn-plugin --path code/dsh-plugin/index.ts', 'dshctl plugin add --id demo --path ~/downloads/demo.zip'],
   },
@@ -527,8 +527,12 @@ async function main(): Promise<number> {
     }
     if (sub === 'pack') {
       const id = positional[1]
-      if (!id) return usageError('plugin pack', '需要 <id>')
-      const r = packPlugin(reg, id, { outDir: join(ROOT, 'plugin-registry', 'dist'), dshSource: join(ROOT, 'deepseek-harness') })
+      if (!id) return usageError('plugin pack', '需要 <id>（用法固定为 `pack <id> --with-bkn [dir]`——flag 在 <id> 之后）')
+      // --with-bkn [dir]：无值=用 manifest.config.bknRoot 或共享根；有值=显式目录
+      const wb = flags['with-bkn']
+      if (wb !== undefined && typeof wb === 'string' && wb.startsWith('--')) return usageError('plugin pack', '--with-bkn 的值不能以 -- 开头')
+      const withBkn = wb === undefined ? undefined : wb === true ? '' : String(wb)
+      const r = packPlugin(reg, id, { outDir: join(ROOT, 'plugin-registry', 'dist'), dshSource: join(ROOT, 'deepseek-harness'), ...(withBkn !== undefined ? { withBkn } : {}) })
       if (asJson) { console.log(JSON.stringify(r, null, 2)); return r.ok ? 0 : 1 }
       for (const l of r.log) console.log(`  · ${l}`)
       if (!r.ok) { for (const e of r.errors) console.error(`plugin pack: ${e}`); return 1 }

@@ -52,6 +52,16 @@ dsh-plugin/
 
 `patchReload: live`，保存即热重载。（注：`patchReload` 键已在 harness v0.1.7 移除——config 监视改由 base 层 hmr 行默认提供，详见 dsh-plugin-reading-guide §5）
 
+## BKN 数据源两种模式（v26）
+
+| 模式 | bknRoot | 场景 |
+|---|---|---|
+| 共享模式（默认） | 绝对路径（默认共享 BKN `/hdd/demo/public/i2stream-bkn/bkn`；env `I2STREAM_BKN_ROOT` 可覆盖） | 开发期/同机：与 Hermes 共用单一事实源，BKN 一改即生效（活耦合，注意契约校验） |
+| 快照模式（`dshctl plugin pack <id> --with-bkn`） | 相对 `bkn`（相对插件包根解析；源码模式=插件目录，打包后=lib 上级包根） | 分发/换机：BKN 随包自包含，不依赖共享路径；包内 `dsh.plugin.yml.bknSnapshot` 记录来源 commit/世代/日期，刷新=重新 pack |
+
+**契约校验**：插件启动按 BKN v26 契约（世代号 ≥26、四核心目录、关键文件与区块）校验 `bknRoot`；
+`Config.contractCheck`：`strict`（默认，不匹配拒载——工具消失但实例照常）/ `warn`（日志响亮继续）/ `off`。共享模式下 BKN 上游再重构时，strict 会当场拦住而不是静默错答。
+
 ## Config
 
 | 字段 | 默认 | 说明 |

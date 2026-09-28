@@ -8,8 +8,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { ContextLoader } from './contextLoader.ts'
-import { BKNResolver } from './resolver.ts'
-import { RelationTraverser } from './relations.ts'
+import { BKNResolver, Section } from './resolver.ts'
+import { RELATION_TYPES, RelationTraverser } from './relations.ts'
 import { checkActionRisk, loadRules, normalizeAction, parseConstraintsDetail } from './riskGuard.ts'
 import {
   aggregateResults,
@@ -222,12 +222,16 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
     async execute(args) {
       const aspect = args.aspect ?? 'overview'
       const leaked: string[] = []
-      const section = aspect === 'all'
-        ? null
-        : resolver.queryProduct(aspect)
-      const result = aspect === 'all'
-        ? { aspect, matched: false, fallback: 'product.bkn', hint: '请改用具体 aspect 查询' }
-        : sectionToJson(section, 'product.bkn 未找到对应小节')
+      // 26 号：本体在 objects/product.bkn；下延 aspect 返回委托指针（23 号值委托）
+      const product = resolver.queryProduct(aspect)
+      if (!product) {
+        const result = { matched: false, fallback: 'objects/product.bkn 未找到对应小节' }
+        return { ...(filterCommandFields(result, leaked) as Record<string, unknown>), aspect, leaked }
+      }
+      const result = product instanceof Section
+        ? sectionToJson(product, 'objects/product.bkn 未找到对应小节')
+        : { matched: true, ...(product as Record<string, unknown>) }
+      if (args.competitor && aspect === 'competitors') result.competitor = args.competitor
       const filtered = filterCommandFields(result, leaked)
       return { ...(filtered as Record<string, unknown>), aspect, leaked }
     },
@@ -235,7 +239,7 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
 
   registerTool({
     name: 'resolve_relation',
-    description: '查询 BKN 关系图中实体之间的关联关系（12 种关系类型: constrained_by/risks_of/implements_skill/has_action 等）。当需要确认某个关系是否存在、某动作的约束/风险、或 Object→Action→Skill 路由时调用。',
+    description: '查询 BKN 关系图中实体之间的关联关系（24 种关系类型: constrained_by/risks_of/implements_skill/has_action/suspected_in/feeds 等）。当需要确认某个关系是否存在、某动作的约束/风险、或 Object→Action→Skill 路由时调用。',
     parameters: {
       source_entity: {
         type: 'string',
@@ -244,7 +248,7 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
       },
       relation_type: {
         type: 'string',
-        enum: ['requires', 'implements', 'constrains', 'constrained_by', 'prerequisite', 'risks_of', 'has_action', 'references', 'runs_on', 'registered_on', 'supports', 'implements_skill', 'all'],
+        enum: [...RELATION_TYPES, 'all'],
         description: '关系类型; all=全部出边',
       },
       target_hint: {
@@ -391,14 +395,15 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
     },
     async execute(args) {
       const topic = String(args.topic ?? 'all')
-      const section = resolver.queryArchitecture(topic)
-      if (!section) {
+      // 23 号：architecture.bkn 已删——本体派生（进程链/拓扑边）+ 值委托指针
+      const arch = resolver.queryArchitecture(topic)
+      if (!arch) {
         return {
           error: `未找到主题: ${topic}`,
           available_topics: ['full_sync', 'incremental_sync', 'topology', 'transaction', 'validation', 'performance', 'oracle_log', 'mssql_mode', 'matrix'],
         }
       }
-      return { ...sectionToJson(section, 'architecture.bkn 未找到对应小节'), topic }
+      return { matched: true, ...arch, topic }
     },
   })
 
@@ -531,12 +536,17 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
       render: renderFor('diagnose_error'),
     },
     async execute(args) {
-      const errorCode = String(args.error_code ?? '')
-      const section = resolver.getRisk(errorCode)
-      if (!section) {
+      // 入口归一（精确键通道）：先同址别名（登录失败 → ORA-01017、2276 → YAS-02276 这类语义别名，
+      // 须先查以免被格式归一吞掉），再格式归一（4073 → -4073、ORA1555 → ORA-01555）。
+      const errorCode = BKNResolver.normalizeErrorCode(
+        resolver.resolveSynonym(String(args.error_code ?? '')),
+      )
+      const risk = resolver.getRisk(errorCode)
+      if (!risk) {
         return { error_code: errorCode, diagnosis: '未在 BKN 中找到该错误码的诊断信息' }
       }
-      return { error_code: errorCode, diagnosis: section.raw, matched: true }
+      // 25 号「常量 + 边」结构：规范化 schema 顶层含 error_code 与 diagnosis（= 派生渲染）
+      return { ...risk, error_code: risk.error_code || errorCode, diagnosis: risk.raw, matched: true }
     },
   })
 
@@ -921,21 +931,20 @@ export function resolveDbType(errorCode?: string): string {
   return ''
 }
 
-/** 从 risks/diagnostics.bkn 提取错误码风险上下文（_extract_bkn_context 1:1）。 */
-export function extractBknContext(resolver: BKNResolver, errorCode?: string): Record<string, string> | null {
+/** 错误码风险上下文：由「常量 + 边」组装（tools.py _extract_bkn_context 1:1）。
+ *
+ * 25 号：锚点表已删——规范 ID 空间由 `suspected_in` 边承载，别名在 constants.ERROR_ALIASES
+ * （值数据层），检索指引为常量规则。返回字段与 21 号对齐：
+ * `error_code` / `retrieval_guide` / `suspected_process` / `dimensions` / `aliases` / `unknown_rule`。
+ */
+export function extractBknContext(resolver: BKNResolver, errorCode?: string): Record<string, unknown> | null {
   if (!errorCode) return null
   const risk = resolver.getRisk(errorCode)
   if (!risk) return null
-  const context: Record<string, string> = { error_code: errorCode }
-  const kv = risk.kv
-  for (const [key, mapped] of [
-    ['**风险级别**', 'risk_level'],
-    ['**触发条件**', 'trigger'],
-    ['**处置策略**', 'handling'],
-    ['**禁止**', 'prohibitions'],
-  ] as const) {
-    const val = kv[key] ?? kv[key.replace(/\*/g, '')]
-    if (val) context[mapped] = val
+  const context: Record<string, unknown> = { error_code: risk.error_code || errorCode }
+  for (const key of ['retrieval_guide', 'suspected_process', 'dimensions', 'aliases', 'unknown_rule'] as const) {
+    const val = risk[key]
+    if (val) context[key] = val
   }
   return Object.keys(context).length > 1 ? context : null
 }

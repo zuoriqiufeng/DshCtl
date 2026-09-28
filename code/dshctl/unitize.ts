@@ -8,13 +8,32 @@
  * tsc 二进制取自 dsh_source（harness 已装 6.0.3；dshctl 自身零新增依赖）。
  */
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync, cpSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync, cpSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, dirname, relative } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
 import type { PluginRegistry } from './plugin.ts'
 
 export const MANIFEST_FILE = 'dsh.plugin.yml'
+
+/** BKN 内嵌快照元数据（pack --with-bkn 写入包内 manifest，仅供追溯；源目录不写） */
+export interface BknSnapshotMeta {
+  /** 包内相对目录（固定 bkn） */
+  dir: string
+  /** 快照时刻（ISO） */
+  at: string
+  /** 来源目录绝对路径 */
+  source: string
+  /** 来源 git commit（short；来源非 git 树时为 null） */
+  commit?: string
+  /** SCHEMA.md 世代号（正则提取；缺失 null） */
+  generation: number | null
+  files: number
+  bytes: number
+  /** SCHEMA.md 的 sha256 前 12 位（防内容漂移） */
+  schemaSha?: string
+}
 
 export interface PluginManifest {
   schema: 1
@@ -27,6 +46,8 @@ export interface PluginManifest {
   config?: unknown
   provides?: string[]
   category?: string
+  /** BKN 快照元数据（仅 pack --with-bkn 的包内 manifest 携带） */
+  bknSnapshot?: BknSnapshotMeta
 }
 
 export function manifestPath(pluginDir: string): string {
@@ -38,7 +59,7 @@ export function loadPluginManifest(pluginDir: string): PluginManifest | null {
   if (!existsSync(p)) return null
   const raw = loadYamlText(readFileSync(p, 'utf8')) as Partial<PluginManifest> | null
   if (!raw || raw.schema !== 1 || !raw.id) return null
-  return { schema: 1, id: raw.id, entry: raw.entry ?? 'index.ts', layout: raw.layout ?? 'in-place', ...(raw.description ? { description: raw.description } : {}), ...(raw.config !== undefined ? { config: raw.config } : {}), ...(raw.provides?.length ? { provides: raw.provides } : {}), ...(raw.category ? { category: raw.category } : {}) }
+  return { schema: 1, id: raw.id, entry: raw.entry ?? 'index.ts', layout: raw.layout ?? 'in-place', ...(raw.description ? { description: raw.description } : {}), ...(raw.config !== undefined ? { config: raw.config } : {}), ...(raw.provides?.length ? { provides: raw.provides } : {}), ...(raw.category ? { category: raw.category } : {}), ...(raw.bknSnapshot ? { bknSnapshot: raw.bknSnapshot } : {}) }
 }
 
 export function savePluginManifest(pluginDir: string, m: PluginManifest): void {
@@ -173,6 +194,48 @@ export function extractInsertBlock(patchText: string, id: string): string | null
   return out.join('\n')
 }
 
+/** 默认共享 BKN 根（与插件 SHARED_BKN_ROOT 同口径；--with-bkn 无值时的来源） */
+export const DEFAULT_BKN_ROOT = '/hdd/demo/public/i2stream-bkn/bkn'
+
+/**
+ * 把 BKN 目录快照进 destDir（pack staging 用），返回元数据。
+ * 拷贝全部文件（BKN 树无 node_modules；跳过 .git 与隐藏项）；统计以实际落盘为准。
+ * generation 从 SCHEMA.md（缺则 SKILL.md）正则 `(\d+)\s*号` 提取；commit 为源目录 git short sha（best-effort）。
+ */
+export function snapshotBkn(srcDir: string, destDir: string): BknSnapshotMeta {
+  if (!existsSync(srcDir)) throw new Error(`BKN 源目录不存在: ${srcDir}`)
+  rmSync(destDir, { recursive: true, force: true })
+  mkdirSync(destDir, { recursive: true })
+  let files = 0
+  let bytes = 0
+  const walk = (s: string, d: string): void => {
+    for (const e of readdirSync(s, { withFileTypes: true })) {
+      if (e.name.startsWith('.')) continue
+      const sp = join(s, e.name)
+      const dp = join(d, e.name)
+      if (e.isDirectory()) { mkdirSync(dp, { recursive: true }); walk(sp, dp) }
+      else if (e.isFile()) { cpSync(sp, dp); files += 1; bytes += statSync(sp).size }
+    }
+  }
+  walk(srcDir, destDir)
+  let generation: number | null = null
+  let schemaSha: string | undefined
+  const schemaPath = join(srcDir, 'SCHEMA.md')
+  const skillPath = join(srcDir, 'SKILL.md')
+  for (const p of [schemaPath, skillPath]) {
+    if (generation !== null || !existsSync(p)) continue
+    const text = readFileSync(p, 'utf8')
+    const mm = /(\d+)\s*号/.exec(text)
+    if (mm) generation = Number(mm[1])
+  }
+  if (existsSync(schemaPath)) schemaSha = createHash('sha256').update(readFileSync(schemaPath)).digest('hex').slice(0, 12)
+  let commit: string | undefined
+  try {
+    commit = execFileSync('git', ['-C', srcDir, 'rev-parse', '--short', 'HEAD'], { timeout: 5000, encoding: 'utf8' }).trim() || undefined
+  } catch { /* 源非 git 树（快照到临时目录等）——留空 */ }
+  return { dir: 'bkn', at: new Date().toISOString(), source: srcDir, ...(commit ? { commit } : {}), generation, files, bytes, ...(schemaSha ? { schemaSha } : {}) }
+}
+
 // ── pack：构建 lib/ + 生成组合包发行版 + tgz ──
 
 export interface PackResult { ok: boolean; tgzPath?: string; errors: string[]; log: string[] }
@@ -182,10 +245,14 @@ export interface PackResult { ok: boolean; tgzPath?: string; errors: string[]; l
  * ① tsc 构建出 lib/（rewriteRelativeImportExtensions：./x.ts → ./x.js）
  * ② package.json 改写：main/exports → lib/；files += lib；dsh.bundle.patch → ./cordis.patch.yml
  * ③ 生成组合包 cordis.patch.yml（insert 行 name=包名——安装后由 profile node_modules 解析）
- * ④ pnpm pack → plugin-registry/dist/<name>-<version>.tgz
+ * ④ pnpm pack → plugin-registry/dist/<name>-<version>[-bkn<gen>-<date>].tgz
  * 消费方式（上游②通道）：dsh plugin --profile <p> add <tgz 路径>
+ *
+ * --with-bkn [dir]（v0.6）：把 BKN 快照内嵌包内 bkn/（换机自包含，不依赖共享路径）。
+ * 源目录零污染——快照与 bknSnapshot 元数据只进 staging；staged patch 的 config.bknRoot 改写为相对 'bkn'，
+ * 由插件侧相对解析（相对插件目录）定位。来源默认 DEFAULT_BKN_ROOT 或 manifest.config.bknRoot。
  */
-export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir: string; dshSource: string }): PackResult {
+export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir: string; dshSource: string; withBkn?: string }): PackResult {
   const errors: string[] = []
   const log: string[] = []
   const entry = reg.plugins.find((x) => x.id === pluginId)
@@ -212,6 +279,20 @@ export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir
     }
   }
   walk(dir, staging)
+
+  // ①' BKN 快照（--with-bkn）——快照与元数据只进 staging，源目录零污染
+  let bknSnapshot: BknSnapshotMeta | undefined
+  if (opts.withBkn !== undefined) {
+    if (!manifestConfigPlain(dir, m)) return { ok: false, errors: [`dsh.plugin.yml 的 config 含 !!js——bundle patch 需整段 dump 会失真；请把易变值移到部署侧 domain.yml 后再 --with-bkn`], log }
+    const configured = (m.config as Record<string, unknown> | undefined)?.bknRoot
+    const src = opts.withBkn || (typeof configured === 'string' && configured ? configured : DEFAULT_BKN_ROOT)
+    try {
+      bknSnapshot = snapshotBkn(src, join(staging, 'bkn'))
+    } catch (e) {
+      return { ok: false, errors: [`BKN 快照失败: ${(e as Error).message.slice(0, 160)}`], log }
+    }
+    log.push(`BKN 快照: ${bknSnapshot.files} 文件 / ${bknSnapshot.bytes} 字节 / 世代 ${bknSnapshot.generation ?? '未知'}${bknSnapshot.commit ? ` / commit ${bknSnapshot.commit}` : ''}`)
+  }
 
   // ① tsc 构建（staging 内：./x.ts 相对导入 → lib/ 里 .js）
   const tscBin = join(opts.dshSource, 'node_modules', 'typescript', 'bin', 'tsc')
@@ -240,7 +321,7 @@ export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir
     ...srcPkg,
     main: `lib/${jsEntry}`,
     exports: { '.': `./lib/${jsEntry}`, './package.json': './package.json' },
-    files: ['lib', 'cordis.patch.yml', MANIFEST_FILE, 'package.json'],
+    files: ['lib', 'cordis.patch.yml', MANIFEST_FILE, 'package.json', ...(bknSnapshot ? ['bkn'] : [])],
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }
   writeFileSync(join(staging, 'package.json'), JSON.stringify(distPkg, null, 2) + '\n')
@@ -248,12 +329,22 @@ export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir
 
   // ③ 组合包 cordis.patch.yml（insert 行 name=包名——安装后由 profile node_modules 解析）
   const patchLines = [`# ${String(srcPkg.name)} 组合包 patch —— 由 dshctl plugin pack 生成（勿手改）`, '- insert:', `    - id: ${m.id}`, `      name: '${String(srcPkg.name)}'`]
-  if (m.config !== undefined) {
+  // 快照模式下 config.bknRoot 改写为相对 'bkn'（插件侧相对插件目录解析）；无 config 时补一条
+  const patchConfig: Record<string, unknown> | undefined = bknSnapshot
+    ? { ...((m.config as Record<string, unknown> | undefined) ?? {}), bknRoot: 'bkn' }
+    : (m.config as Record<string, unknown> | undefined)
+  if (patchConfig !== undefined) {
     patchLines.push('      config:')
-    for (const l of dumpYaml(m.config).split('\n')) if (l.trim()) patchLines.push('        ' + l)
+    for (const l of dumpYaml(patchConfig).split('\n')) if (l.trim()) patchLines.push('        ' + l)
   }
   atomicWrite(join(staging, 'cordis.patch.yml'), patchLines.join('\n') + '\n')
   log.push('cordis.patch.yml 生成（dsh.bundle.patch 指向它）')
+  if (bknSnapshot) {
+    // staging 版 manifest 带快照元数据（源目录 manifest 保持无快照——发布事实只在包内）
+    const staged = { ...m, bknSnapshot }
+    atomicWrite(join(staging, MANIFEST_FILE), `# ${MANIFEST_FILE} —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）\n# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/\n# bknSnapshot: pack --with-bkn 内嵌快照元数据（追溯用；运行时 bknRoot='bkn' 相对本包解析）\n` + dumpYaml(staged))
+    log.push('staging manifest 写入 bknSnapshot 元数据')
+  }
 
   // ④ pnpm pack（staging 内）→ tgz
   mkdirSync(opts.outDir, { recursive: true })
@@ -261,7 +352,12 @@ export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir
     const out = execFileSync('pnpm', ['pack', '--pack-destination', opts.outDir], { cwd: staging, timeout: 60_000, encoding: 'utf8' })
     const tgz = out.split('\n').map((s) => s.trim()).filter((s) => s.endsWith('.tgz')).pop()
     if (!tgz) return { ok: false, errors: ['pnpm pack 未返回 tgz 路径'], log }
-    const full = join(opts.outDir, tgz.split('/').pop()!)
+    let full = join(opts.outDir, tgz.split('/').pop()!)
+    if (bknSnapshot) {
+      const dated = `${full.replace(/\.tgz$/, '')}-bkn${bknSnapshot.generation ?? 'x'}-${bknSnapshot.at.slice(0, 10).replace(/-/g, '')}.tgz`
+      rmSync(dated, { force: true })
+      try { cpSync(full, dated); rmSync(full, { force: true }); full = dated; log.push('tgz 命名附快照世代+日期（追溯）') } catch { /* 复制失败保留原名 */ }
+    }
     log.push(`tgz: ${full}`)
     rmSync(staging, { recursive: true, force: true })
     if (typeErrors) errors.push(`tsc 类型诊断 ${typeErrors} 条（不阻断；存量类型债，修偿见 plan）`)

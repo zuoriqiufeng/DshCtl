@@ -1,13 +1,21 @@
 /**
  * riskGuard.ts — 代码级风险护栏（DSH 版）
  *
- * 移植自 plugin/risk_guard.py (v1.6, B1: 规则 BKN 驱动)：
- * 将 bkn/risks/constraints.bkn 中类型为 state_prerequisite 的约束自动翻译为
- * 代码校验，经 DSH `tools/pre-execute` 策略在动作执行前拦截。
+ * 移植自 plugin/risk_guard.py (v2.0, L2 三源 join)：将 BKN 中类型为
+ * state_prerequisite 的约束自动翻译为代码校验，经 DSH `tools/pre-execute`
+ * 策略在动作执行前拦截。
  *
- * 规则来源（不再硬编码）：解析 constraints.bkn 表格行 → 只取
- * state_prerequisite → 由约束ID 命名约定推导 forbidden_states；
- * 解析失败/为空时回退内置兜底规则（保证护栏不失效）。
+ * 数据源（L2 打通后，三源 join；对象/解析口径与 risk_guard.py 1:1）：
+ *   1. objects/*.bkn 状态机段 → 状态全集/状态族/状态归属
+ *      （24 号起 KV bullet `- **STOPPED**: ...` 为现行形态，表格为历史形态；
+ *       worknode 无状态段 → 按设计回退硬编码）
+ *   2. relations/action_routing.bkn 的 constrained_by 边 → 动作↔约束关联（单源；
+ *       25 号起关联列已删，绑定以边为权威，无边 → 不装配 + lint 正向提示）
+ *   3. risks/constraints.bkn 约束表（4 列：Risk/约束ID/类型/约束，25 号删「关联」列）
+ *      → 约束类型/文案/错误码，按约束ID 与图边 join
+ *
+ * 规则来源（不再硬编码）：解析失败/为空时回退内置兜底规则（保证护栏不失效），
+ * 正常数据下一律走 graph_edges 装配路径（source 字段透出装配来源）。
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -26,7 +34,7 @@ export interface RiskRule {
   riskType?: string
   /** 语义为顺序类（无 _STATE 后缀可推导）：登记供会话时序判定（阶段D，数据休眠）。 */
   sequenceSemantic?: boolean
-  /** 装配来源：graph_edges / fallback_assoc / fallback。 */
+  /** 装配来源：graph_edges（图边单源）/ no_edges（无边未装配）/ fallback（兜底规则）。 */
   source?: string
 }
 
@@ -39,7 +47,7 @@ export interface RiskCheck {
   severity: string | null
   errorCode: string | null
   blockable: boolean | null
-  /** 规则装配来源：graph_edges / fallback_assoc / fallback。 */
+  /** 规则装配来源：graph_edges / no_edges / fallback。 */
   source?: string
 }
 
@@ -72,10 +80,11 @@ interface ObjectStates {
 }
 
 /**
- * 解析 objects/*.bkn 状态机表（对齐 Hermes _parse_object_states）：
- *   1. syncrule: | 当前状态 | 允许操作 | 禁止操作 |
- *   2. dbnode:   | 状态 | 说明 | 用于规则 |
- *   3. worknode: 无状态表（ASCII 图），解析不出 → 调用方回退硬编码。
+ * 解析 objects/*.bkn 状态机表（对齐 Python _parse_object_states，兼容两形态）：
+ *   1. **KV bullet**（24 号起现行）：`- **STOPPED**: 允许 start；无特殊禁止`
+ *   2. 表格（历史形态）：syncrule `| 当前状态 | 允许操作 | 禁止操作 |` /
+ *      dbnode `| 状态 | 说明 | 用于规则 |`
+ *   3. worknode: 无状态段（ASCII 图 + 中文 bullets），解析不出 → 调用方回退硬编码。
  * 另解析「运行族: X={...}」kv 声明（BKN 当前缺失 → 硬编码回退补入）。
  */
 function parseObjectStates(bknRoot: string): Record<string, ObjectStates> {
@@ -98,22 +107,31 @@ function parseObjectStates(bknRoot: string): Record<string, ObjectStates> {
     const states = new Set<string>()
     const families: Record<string, Set<string>> = {}
 
-    // ── 状态机段落内找表格 ──
+    // ── 状态机段落内找 KV bullet / 表格 ──
     let inStateMachine = false
-    for (const line of text.split('\n')) {
-      if (line.includes('## 状态机') || line.includes('## 状态约束')) {
+    for (const rawLine of text.split('\n')) {
+      if (rawLine.includes('## 状态机') || rawLine.includes('## 状态约束')) {
         inStateMachine = true
         continue
       }
-      if (inStateMachine && line.startsWith('## ')) break
-      if (inStateMachine && line.includes('|')) {
-        const cells = line.split('|').map((c) => c.trim()).filter(Boolean)
-        // 表头/分隔行
-        if (!cells.length || (cells[0].includes('状态') && (cells.length > 1 ? cells[1].includes('允许') : true))) continue
-        if (!cells[0] || cells[0].startsWith('-')) continue
-        const state = cells[0].toUpperCase()
+      if (inStateMachine && rawLine.startsWith('## ')) break // 出了状态机段落
+      if (!inStateMachine) continue
+      const line = rawLine.trim()
+      // 形态 1：KV bullet —— `- **STATE**: 说明`
+      const kv = /^-[ \t]*\*\*([A-Za-z][A-Za-z0-9_]*)\*\*[ \t]*:/.exec(line)
+      if (kv) {
+        const state = kv[1]!.toUpperCase()
         if (/^[A-Z][A-Z0-9_]*$/.test(state)) states.add(state)
+        continue
       }
+      // 形态 2：表格行（历史）
+      if (!line.startsWith('|')) continue
+      const cells = line.split('|').map((c) => c.trim()).filter(Boolean)
+      // 表头/分隔行
+      if (!cells.length || (cells[0]!.includes('状态') && (cells.length > 1 ? cells[1]!.includes('允许') : true))) continue
+      if (!cells[0] || cells[0].startsWith('-')) continue
+      const state = cells[0]!.replace(/[`*]/g, '').toUpperCase()
+      if (/^[A-Z][A-Z0-9_]*$/.test(state)) states.add(state)
     }
 
     // ── 运行族声明（kv 行）: > 运行族: RUNNING={RUNNING,FULLSYNC} ──
@@ -190,34 +208,25 @@ function getStates(bknRoot: string): Record<string, ObjectStates> {
   return statesCache
 }
 
-// 关联列「对象.动作」→ action 规范名
-const ASSOC_TO_ACTION: Record<string, string> = {
-  'SyncRule.delete': 'delete_sync_rule',
-  'SyncRule.modify': 'modify_sync_rule',
-  'SyncRule.restart': 'restart_sync_rule',
-  'SyncRule.start': 'start_sync_rule',
-  'SyncRule.stop': 'stop_sync_rule',
-  'SyncRule.create': 'create_sync_rule',
-  'DatabaseNode.create': 'register_db',
-  'WorkerNode.activate': 'activate_node',
-}
-
-// 兜底规则（BKN 解析失败时使用）
+// 兜底规则（BKN 解析失败时使用，与 Python _FALLBACK_RULES 同口径）
 const FALLBACK_RULES: Record<string, Omit<RiskRule, 'forbiddenStates'> & { forbiddenStates: string[] }> = {
   cannot_delete_RUNNING: {
     action: 'delete_sync_rule', object: 'syncrule',
     forbiddenStates: ['RUNNING', 'FULLSYNC'], severity: 'critical', errorCode: '-4071',
     message: '规则处于 {state} 状态，禁止删除。请先安全 stop，再执行删除。',
+    source: 'fallback',
   },
   worknode_must_be_ONLINE: {
     action: 'register_db', object: 'worknode',
     forbiddenStates: ['OFFLINE'], severity: 'critical', errorCode: '-4016',
     message: '工作节点处于 {state} 状态，禁止注册数据库节点 (-4016)。请先恢复节点在线。',
+    source: 'fallback',
   },
   cannot_restart_ABNORMAL: {
     action: 'restart_sync_rule', object: 'syncrule',
     forbiddenStates: ['ABNORMAL'], severity: 'critical', errorCode: '-4031',
     message: '规则处于 ABNORMAL 状态，禁止直接 restart (-4031)。请先安全 stop、修复根因后再恢复。',
+    source: 'fallback',
   },
 }
 
@@ -229,7 +238,10 @@ const ACTION_ALIASES: Record<string, string> = {
   stop_rule: 'stop_sync_rule', stop_sync_rule: 'stop_sync_rule',
   register_database: 'register_db', register_db: 'register_db', create_db_node: 'register_db',
   create_sync_rule: 'create_sync_rule', create_rule: 'create_sync_rule',
-  restart_rule: 'restart_sync_rule', restart_sync_rule: 'restart_sync_rule',
+  // restart 归一到 start_sync_rule：ABNORMAL/RUNNING 下 restart 语义为"先 stop 再 start"，
+  // 图边 action_routing 把 cannot_restart_* 约束挂在 start_sync_rule 上（1:1 Python
+  // _ACTION_ALIASES）。归一后命令指纹识别的 restart 也能命中图边规则（护栏不失效）。
+  restart_rule: 'start_sync_rule', restart_sync_rule: 'start_sync_rule',
   activate_node: 'activate_node',
 }
 
@@ -270,8 +282,10 @@ function deriveForbiddenStates(ruleId: string, obj: string, states: Record<strin
 
   m = RE_MUST_BE_STATE.exec(ruleId) ?? RE_TRAILING_STATE.exec(ruleId)
   if (m) {
-    const state = m[1]
-    const owner = states[state]?.stateOwner[state] ?? obj
+    const state = m[1]!
+    // 状态归属查反向索引（1:1 Python：state_owner.get(state, obj)）——
+    // worknode_must_be_ONLINE 的 obj 由 action 派生为 dbnode，归属须由 ONLINE 反查回 worknode
+    const owner = states[obj]?.stateOwner[state] ?? obj
     return new Set([...(states[owner]?.states ?? new Set<string>())].filter((s) => s !== state))
   }
   return new Set()
@@ -310,11 +324,16 @@ export function parseActionEdges(bknRoot: string): { constraints: Record<string,
 interface ConstraintDetail {
   riskName: string
   riskType: string
-  assoc: string
   text: string
 }
 
-/** 解析 risks/constraints.bkn 全部行 → {ruleId: 详情}（1:1 Hermes _parse_constraints_detail）。 */
+/**
+ * 解析 risks/constraints.bkn 全部行 → {ruleId: 详情}（1:1 Python _parse_constraints_detail）。
+ *
+ * 26 号本体分层后表头为 4 列 `| Risk | 约束ID | 类型 | 约束 |`（「关联」列已删）：
+ * 取 cells[0..3] = riskName/ruleId/riskType/text，`len(cells) < 4` 才跳过；
+ * 关联关系以 relations/action_routing.bkn 的 constrained_by 边为权威（见 assembleRules）。
+ */
 export function parseConstraintsDetail(bknRoot: string): Record<string, ConstraintDetail> {
   const details: Record<string, ConstraintDetail> = {}
   let text: string
@@ -326,10 +345,10 @@ export function parseConstraintsDetail(bknRoot: string): Record<string, Constrai
   for (const line of text.split('\n')) {
     if (!line.startsWith('|') || line.includes('约束ID') || line.includes('---')) continue
     const cells = line.split('|').map((c) => c.trim()).filter(Boolean)
-    if (cells.length < 5) continue
-    const [riskName, ruleId, riskType, assoc, text_] = cells as [string, string, string, string, string]
+    if (cells.length < 4) continue
+    const [riskName, ruleId, riskType, text_] = cells as [string, string, string, string]
     if (!/^[a-z][a-zA-Z0-9_]*$/.test(ruleId)) continue
-    details[ruleId] = { riskName, riskType, assoc, text: text_ }
+    details[ruleId] = { riskName, riskType, text: text_ }
   }
   return details
 }
@@ -337,20 +356,23 @@ export function parseConstraintsDetail(bknRoot: string): Record<string, Constrai
 /** 可进拦截的约束类型白名单（Hermes _STATICALLY_DECIDABLE_TYPES 1:1）。 */
 const STATICALLY_DECIDABLE_TYPES = new Set(['state_prerequisite', 'forbidden_sequence', 'threshold'])
 
-function objectFromAssoc(assoc: string, action: string): string {
-  if (assoc && assoc.includes('.')) {
-    return assoc.split('.')[0]!.toLowerCase().replace('databasenode', 'dbnode').replace('workernode', 'worknode')
-  }
+/** 能力名 → 对象名派生（1:1 Python _assemble_rules：子串包含 rule/node 判断，其余归 dbnode）。 */
+function objectFromAction(action: string): string {
   return action.includes('rule') ? 'syncrule' : action.includes('node') ? 'worknode' : 'dbnode'
 }
 
-/** 三源 join 装配规则（1:1 Hermes _assemble_rules）：图边关联 + 约束详情 + 状态机推导。 */
+/**
+ * 三源 join 装配规则（1:1 Python _assemble_rules）：图边关联 + 约束详情 + 状态机推导。
+ *
+ * 关联源 = 图边（单源）：25 号起 constraints.bkn 关联列已删，动作绑定以
+ * constrained_by 边为权威；无边 → 不装配（source=no_edges，走兜底规则；
+ * lint `_check_constraint_edge_alignment` 正向检查兜底提示）。
+ */
 function assembleRules(bknRoot: string, states: Record<string, ObjectStates>): Record<string, RiskRule> {
   const { constraints: edgeConstraints } = parseActionEdges(bknRoot)
   const details = parseConstraintsDetail(bknRoot)
   const rules: Record<string, RiskRule> = {}
 
-  // 关联源：图边优先，为空回退硬编码关联列
   const actionToRules: Record<string, string[]> = {}
   let assocSource: string
   if (Object.keys(edgeConstraints).length) {
@@ -359,12 +381,7 @@ function assembleRules(bknRoot: string, states: Record<string, ObjectStates>): R
     }
     assocSource = 'graph_edges'
   } else {
-    assocSource = 'fallback_assoc'
-    for (const [assoc, action] of Object.entries(ASSOC_TO_ACTION)) {
-      for (const [ruleId, det] of Object.entries(details)) {
-        if (det.assoc === assoc) (actionToRules[action] ??= []).push(ruleId)
-      }
-    }
+    assocSource = 'no_edges'
   }
 
   for (const [action, ruleIds] of Object.entries(actionToRules)) {
@@ -373,12 +390,13 @@ function assembleRules(bknRoot: string, states: Record<string, ObjectStates>): R
       const det = details[ruleId]
       if (!det) continue // 图边指向的约束在表中无定义 → 跳过（保底不误拦）
       if (!STATICALLY_DECIDABLE_TYPES.has(det.riskType)) continue // data_loss/param_constraint 不进拦截
-      const obj = objectFromAssoc(det.assoc, action)
+      // 状态前置/顺序类：对象由 action 名派生（关联列已删，能力名即对象约定）
+      const obj = objectFromAction(action)
       let forbidden: Set<string>
       let seqSemantic: boolean
       if (det.riskType === 'state_prerequisite') {
         forbidden = deriveForbiddenStates(ruleId, obj, states)
-        seqSemantic = !forbidden.size // 无 _STATE 后缀可推导 → 降级为会话时序语义
+        seqSemantic = !forbidden.size // 无 _STATE 后缀可推导 → 降级为会话时序语义（阶段 D，数据休眠）
       } else {
         // forbidden_sequence / threshold：不走状态推导（阶段 D/E 判定，数据休眠）
         forbidden = new Set()

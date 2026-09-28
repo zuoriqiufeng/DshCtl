@@ -3,16 +3,41 @@
  *
  * 移植自 plugin/relations.py：解析 KWeaver 段落格式的关系文件，
  * 构建有向图并提供遍历/路径/路由查询。
+ *
+ * 支持的关系类型（24 种，见 bkn/relations/RELATION_TYPES.md，唯一口径源）：
+ *   B-域（14）  requires / implements / constrains / constrained_by / prerequisite / risks_of /
+ *               has_action / references / runs_on / registered_on / supports / implements_skill /
+ *               reads_from / writes_to
+ *   O-域（3）   has_class / diagnosed_by / observed_in
+ *   运行时对象域（6） feeds / supervises / consumes / produces / monitors / suspected_in
+ *   结构域（1） connects_to（部署单元与链路，25 号新增）
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 export const RELATION_TYPES = [
+  // ── B 域（14 种）──
   'requires', 'implements', 'constrains', 'constrained_by',
   'prerequisite', 'risks_of', 'has_action',
   'references', 'runs_on', 'registered_on', 'supports',
   'implements_skill',
+  // 源端/目标端角色由边类型承载（2026-09-22 批 0-3，P1-6 复核改判，
+  // 替代 dbnode:source / dbnode:target 节点名后缀）
+  'reads_from', 'writes_to',
+  // ── O 域（3 种，入 graph）──
+  'has_class',     // 实例级: symptom:/error: → dimension:  归类
+  'diagnosed_by',  // 类级:   dimension: → skill:           诊断策略
+  'observed_in',   // 类级:   dimension: → log:             取证入口（有序）
+  // ── 运行时对象域（6 种，入 graph；对象轴：进程拓扑为主干）──
+  'feeds',         // 实例级: process:* → process:*     数据流下游（有序）
+  'supervises',    // 实例级: process:* → process:*     生命周期管理
+  'consumes',      // 实例级: process:* → dbnode        从哪个库读数据
+  'produces',      // 实例级: process:* → dbnode        向哪个库写数据
+  'monitors',      // 实例级: process:* → dbnode        状态监控
+  'suspected_in',  // 实例级: symptom:/error: → process:*  嫌疑进程
+  // ── 结构域（25 号新增，入 graph）──
+  'connects_to',   // 实例级: link:* → controlnode/worknode/dbnode  链路两端
 ] as const
 
 export type RelType = (typeof RELATION_TYPES)[number]
@@ -223,5 +248,32 @@ export class RelationTraverser {
   /** 查 Action 的风险。 */
   getRisksForAction(actionId: string): string[] {
     return this.#edges(actionId, 'risks_of')
+  }
+
+  // ── O 域（运维诊断）查询：症状/错误码 × 检查维度 ──
+
+  /** 查症状/错误码归属的检查维度（has_class 出边）。 */
+  getClassesForSymptom(symptomId: string): string[] {
+    return this.graph.get(symptomId)?.get('has_class') ?? []
+  }
+
+  /** 查检查维度绑定的 Skill（去 skill: 前缀），去重保序。 */
+  getSkillsForClass(classId: string): string[] {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const tgt of this.graph.get(classId)?.get('diagnosed_by') ?? []) {
+      const name = tgt.replace(/^skill:/, '')
+      if (name && !seen.has(name)) {
+        seen.add(name)
+        result.push(name)
+      }
+    }
+    return result
+  }
+
+  /** 查检查维度的取证日志（去 log: 前缀），按声明顺序 = 查看顺序。
+   *  注意: 必须直查本方法, 不得走 expand()（BFS 会打散有序性）。 */
+  getLogsForClass(classId: string): string[] {
+    return (this.graph.get(classId)?.get('observed_in') ?? []).map((t) => t.replace(/^log:/, ''))
   }
 }

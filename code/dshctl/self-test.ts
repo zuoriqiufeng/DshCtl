@@ -20,7 +20,7 @@ import { runUpgradeCheck } from './upgrade-check.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins, isPackagePath, type PluginRegistry } from './plugin.ts'
 import { loadCoreList, coreViolations, coreIds, slotFindings, saveSlotMember } from './core.ts'
 import { importFromZip, importFromGit, zipEntryUnsafe, ZIP_MAX_UNCOMPRESSED } from './import.ts'
-import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, type PluginManifest } from './unitize.ts'
+import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, snapshotBkn, type PluginManifest } from './unitize.ts'
 import { crossCheckRegistries } from './plugin.ts'
 import { runReplace, type ReplacePaths } from './replace.ts'
 import type { DomainSpec } from './domain.ts'
@@ -878,6 +878,26 @@ console.log('\n[16] v0.5 插件单元化：自描述 / scaffold / install / R13 
   const patchText = `- insert:\n    - id: bkn-plugin\n      name: '/x/index.ts'\n      config:\n        apiKey: !!js process.env.K\n        plain: 1\n    - id: next\n      name: '/y'\n`
   const block = extractInsertBlock(patchText, 'bkn-plugin')
   check('extractInsertBlock：到下一个 - id: 截断', !!block && block.includes('apiKey: !!js process.env.K') && block.includes('plain: 1') && !block.includes("name: '/y'"))
+
+  // ⑦ BKN 快照（pack --with-bkn：源目录零污染，元数据只进包内）
+  const bknSrc = join(fixture(), 'bkn-src')
+  mkdirSync(join(bknSrc, 'objects'), { recursive: true })
+  writeFileSync(join(bknSrc, 'SCHEMA.md'), '# SCHEMA\n\n> 2026-09-24（26 号四元收敛终态）\n')
+  writeFileSync(join(bknSrc, 'objects', 'a.bkn'), '## A\n')
+  const bknDst = join(fixture(), 'bkn-dst')
+  const meta = snapshotBkn(bknSrc, bknDst)
+  check('snapshotBkn：文件/字节/世代/sha 统计',
+    meta.files === 2 && meta.bytes > 0 && meta.generation === 26 && !!meta.schemaSha && meta.dir === 'bkn',
+    JSON.stringify(meta))
+  check('snapshotBkn：落盘拷贝（含子目录）', existsSync(join(bknDst, 'objects', 'a.bkn')) && existsSync(join(bknDst, 'SCHEMA.md')))
+  check('snapshotBkn：源目录零污染（不写回 manifest/元数据）', !existsSync(join(bknSrc, 'dsh.plugin.yml')))
+  const mSnap: PluginManifest = { ...m, bknSnapshot: meta }
+  const snapDir = fixture()
+  savePluginManifest(snapDir, mSnap)
+  const back = loadPluginManifest(snapDir)
+  check('manifest：bknSnapshot 往返保真（files/commit/generation）',
+    back?.bknSnapshot?.generation === 26 && back?.bknSnapshot?.files === 2 && back?.bknSnapshot?.dir === 'bkn',
+    JSON.stringify(back?.bknSnapshot))
 
   // ⑦ 导入防护常量
   check('导入防护：解压上限 200MB 常量在位', ZIP_MAX_UNCOMPRESSED === 200 * 1024 * 1024)
