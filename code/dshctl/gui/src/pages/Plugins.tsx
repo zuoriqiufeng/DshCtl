@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Tabs, Tag, Space, Typography, Input, Button, Popconfirm, message, Select, Upload, Empty, Skeleton, Drawer, Segmented, Tooltip, Switch, Collapse } from 'antd'
-import { ReloadOutlined, PlusOutlined, SafetyCertificateOutlined, ImportOutlined, AppstoreOutlined, CloudUploadOutlined, GithubOutlined, DeleteOutlined, SearchOutlined, DatabaseOutlined, SafetyCertificateTwoTone, FolderAddOutlined, FileZipOutlined, ExportOutlined, SwapOutlined, CheckOutlined } from '@ant-design/icons'
-import { api, PageHead, PageCard, CommandChip, Hint, TabTile, StateDot, StatusRow, StepBadge, CodeBlock, SHADOW, GRAY, SEM, FONT_SIZE } from '../api.tsx'
+import { ReloadOutlined, PlusOutlined, SafetyCertificateOutlined, ImportOutlined, AppstoreOutlined, CloudUploadOutlined, GithubOutlined, DeleteOutlined, SearchOutlined, FolderAddOutlined, FileZipOutlined, ExportOutlined, SwapOutlined, CheckOutlined } from '@ant-design/icons'
+import { api, PageHead, PageCard, CommandChip, Hint, StateDot, StatusRow, StepBadge, CodeBlock, SHADOW, GRAY, SEM, SEM_TEXT, FONT_SIZE } from '../api.tsx'
+
+/** 页签两行纯文字 label（色交给 antd active/hover；副文案常灰） */
+const tabLabel = (title: string, sub: string) => (
+  <div style={{ padding: '3px 2px', textAlign: 'left' }}>
+    <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>{title}</div>
+    <div style={{ fontSize: 11.5, color: GRAY.weak, marginTop: 2 }}>{sub}</div>
+  </div>
+)
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Plugin = { id: string; name?: string; description?: string; tier?: string; category?: string; source?: string; path: string; trusted: boolean; added_at?: string; depends_on?: string[]; provides?: string[] }
@@ -17,52 +25,44 @@ type SlotsMap = Record<string, { desc?: string; members: string[] }>
 
 /** 目录分组：已知分类有序展示，未知归「其他」 */
 const CATEGORY_ORDER = ['知识网', '对外 API', '技能管理']
-const CATEGORY_COLOR: Record<string, string> = { '知识网': '#13c2c2', '对外 API': '#1677ff', '技能管理': '#722ed1' }
-const catColor = (c: string) => CATEGORY_COLOR[c] ?? GRAY.weak
 
-/** 正方形层次卡：色带头像 + 单行 id/描述省略 + 分隔线底条（全文点详情看） */
+/** 正方形极简卡牌：白底发丝边 + 中性磁贴 + eyebrow 分类 + 2 行描述截断；悬浮 .tile-lift */
 function PluginTile({ p, onClick }: { p: Plugin; onClick: () => void }) {
-  const color = catColor(p.category ?? '')
   const initial = (p.id[0] ?? '?').toUpperCase()
+  const ellipsis2: CSSProperties = {
+    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+  }
   return (
-    <div title={p.description} onClick={onClick} className="card-lift" style={{
+    <div title={p.description} onClick={onClick} className="tile-lift" style={{
       aspectRatio: '1', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-      background: p.trusted ? '#fff' : '#fffbef', border: '1px solid #eef1f6',
-      borderLeft: `4px solid ${p.trusted ? '#52c41a' : '#fa8c16'}`, borderRadius: 10,
-      boxShadow: SHADOW.card, cursor: 'pointer', minWidth: 0, padding: 0,
+      background: '#fff', border: '1px solid #e3e5e8', borderRadius: 12,
+      cursor: 'pointer', minWidth: 0, padding: 16,
     }}>
-      {/* 第 1 层：分类色带头像 */}
-      <div style={{
-        padding: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8,
-        background: `${color}0f`,
-      }}>
+      {/* 顶行：中性磁贴 + 信任点（唯一色彩语义） */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div style={{
-          width: 44, height: 44, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: `${color}1f`, color, fontSize: 19, fontWeight: 600,
-          boxShadow: '0 0 0 3px #fff, 0 2px 8px rgba(16,24,40,0.08)',
+          width: 40, height: 40, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: GRAY.panel, color: GRAY.sub, fontSize: 17, fontWeight: 600,
         }}>{initial}</div>
-        {p.category && (
-          <Tag style={{ marginInlineEnd: 0, fontSize: 11.5, color, background: '#ffffffcc', borderColor: `${color}55`, lineHeight: '18px' }}>
-            {p.category}
-          </Tag>
-        )}
+        <StateDot level={p.trusted ? 'ok' : 'warn'} size={7} />
       </div>
-      {/* 第 2 层：id + 描述单行省略（悬停 title 全文，点击开详情） */}
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', padding: '2px 14px 10px' }}>
-        <Typography.Text strong style={{ fontSize: 14, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.id}</Typography.Text>
+      {/* 中段：eyebrow 分类 + id + 描述 2 行截断 */}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', paddingTop: 12 }}>
+        {p.category && (
+          <div style={{ fontSize: 11, color: GRAY.weak, letterSpacing: '0.05em', marginBottom: 2 }}>{p.category}</div>
+        )}
+        <Typography.Text strong style={{ fontSize: FONT_SIZE.md, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.id}</Typography.Text>
         <Typography.Text type="secondary" style={{
-          fontSize: 12, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 3,
+          fontSize: FONT_SIZE.sm, display: 'block', marginTop: 3, wordBreak: 'break-all', ...ellipsis2,
         }}>{p.description ?? '未填描述'}</Typography.Text>
       </div>
-      {/* 第 3 层：分隔线底条 */}
+      {/* 底行：发丝分隔 + 能力数 */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexShrink: 0,
-        borderTop: '1px solid #eef1f6', padding: '8px 14px 10px',
+        flexShrink: 0, borderTop: `1px solid ${GRAY.line}`, paddingTop: 9, marginTop: 10,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <Tag style={{ marginInlineEnd: 0, fontSize: 11.5, color: '#5b6575', background: '#f7f9fc', border: '1px solid #eef1f6' }}>
-          能力 ×{p.provides?.length ?? 0}
-        </Tag>
-        <StateDot level={p.trusted ? 'ok' : 'warn'} size={7} />
+        <span style={{ fontSize: 11.5, color: GRAY.weak, fontVariantNumeric: 'tabular-nums' }}>能力 ×{p.provides?.length ?? 0}</span>
+        {!p.trusted && <span style={{ fontSize: 11.5, color: SEM_TEXT.warning }}>未信任</span>}
       </div>
     </div>
   )
@@ -384,9 +384,9 @@ export default function PluginsPage() {
         cmds={['dshctl plugin list --json', 'dshctl plugin add --id <id> --path <入口.ts>', 'dshctl plugin publish <domain>']}
         icon={<AppstoreOutlined />} iconColor="#13c2c2"
         extra={<Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>} />
-      <Tabs size="large" items={[
+      <Tabs size="large" className="plugins-tabs" items={[
         {
-          key: 'dir', label: <TabTile icon={<DatabaseOutlined />} title="插件目录" sub="标签过滤 / 搜索 / 详情" />,
+          key: 'dir', label: tabLabel('插件目录', '标签过滤 · 搜索 · 详情'),
           children: (
             <PageCard>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -397,29 +397,35 @@ export default function PluginsPage() {
                 </Space>
                 <Space>
                   <Typography.Text type="secondary" style={{ fontSize: 13 }}>{plugins.length} 项</Typography.Text>
-                  {!!untrustedCount && <Tag color="warning" style={{ marginInlineEnd: 0 }}>{untrustedCount} 未信任</Tag>}
+                  {!!untrustedCount && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: GRAY.sub }}>
+                      <StateDot level="warn" size={6} /> {untrustedCount} 未信任
+                    </span>
+                  )}
                 </Space>
               </div>
-              {/* 分类标签过滤条 */}
+              {/* 分类标签过滤条（近黑胶囊：选中态呼应主按钮 DNA） */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                 {catChips.map((c) => {
                   const active = catFilter === c.cat
-                  const color = catColor(c.cat)
                   return (
-                    <Tag key={c.cat} onClick={() => setCatFilter(c.cat)} style={{
-                      marginInlineEnd: 0, cursor: 'pointer', userSelect: 'none', fontSize: 12, lineHeight: '20px',
-                      color: active ? (c.cat === '全部' ? '#1677ff' : color) : '#5b6575',
-                      background: active ? (c.cat === '全部' ? '#1677ff0f' : `${color}0f`) : '#fff',
-                      borderColor: active ? (c.cat === '全部' ? '#1677ff66' : `${color}66`) : '#e5e9f0',
+                    <span key={c.cat} onClick={() => setCatFilter(c.cat)} style={{
+                      cursor: 'pointer', userSelect: 'none', fontSize: 12, lineHeight: '22px', padding: '0 12px',
+                      borderRadius: 999, transition: 'all .15s',
+                      color: active ? '#fff' : GRAY.sub,
+                      background: active ? '#1a1d21' : GRAY.panel,
+                      border: `1px solid ${active ? '#1a1d21' : GRAY.line}`,
                       fontWeight: active ? 600 : 400,
-                    }}>{c.cat} {c.count}</Tag>
+                    }}>
+                      {c.cat} <span style={{ opacity: 0.55, fontSize: 11 }}>{c.count}</span>
+                    </span>
                   )
                 })}
               </div>
               {loading ? <Skeleton active paragraph={{ rows: 4 }} /> : !filtered.length
                 ? <Empty description="没有匹配——换个标签或搜索词，或去「新建 · 导入」收编" />
                 : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
                     {filtered.map((p) => <PluginTile key={p.id} p={p} onClick={() => setDetail(p)} />)}
                   </div>
                 )}
@@ -427,7 +433,7 @@ export default function PluginsPage() {
           ),
         },
         {
-          key: 'new', label: <TabTile icon={<PlusOutlined />} title="新建 · 导入" sub="四种入库方式" color="#fa8c16" />,
+          key: 'new', label: tabLabel('新建 · 导入', '四种入库方式'),
           children: (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: 16, alignItems: 'start' }}>
               <MethodCard color="#13c2c2" icon={<FolderAddOutlined />} title="路径收编"
@@ -495,7 +501,7 @@ export default function PluginsPage() {
           ),
         },
         {
-          key: 'core', label: <TabTile icon={<SafetyCertificateTwoTone />} title={`核心功能 ${core.length}`} sub="不可缺 · 全部可替换（未开槽自动建槽）" color="#722ed1" />,
+          key: 'core', label: tabLabel(`核心功能 ${core.length}`, '不可缺 · 全部可替换（未开槽自动建槽）'),
           children: (
             <PageCard>
               {/* 等高双栏（stretch + 定高 580，底边必齐；两栏各自内滚） */}
@@ -636,7 +642,7 @@ export default function PluginsPage() {
             }}>
               <div style={{
                 width: 46, height: 46, borderRadius: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                background: `${catColor(detail.category ?? '')}14`, color: catColor(detail.category ?? ''), fontSize: 20, fontWeight: 600,
+                background: GRAY.panel, color: GRAY.sub, fontSize: 20, fontWeight: 600,
               }}>{(detail.id[0] ?? '?').toUpperCase()}</div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <Typography.Text strong style={{ fontSize: 16 }}>{detail.id}</Typography.Text>

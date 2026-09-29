@@ -330,6 +330,12 @@ export const TAB_TILE_CSS = `
 .card-hover:hover { box-shadow: ${SHADOW.hover}; border-color: #d0d3d8; }
 .card-lift { transition: box-shadow .15s, transform .15s; }
 .card-lift:hover { transform: translateY(-2px); box-shadow: ${SHADOW.hover}; }
+/* 插件卡牌专用：明显悬浮（浮起 + 边框加深 + 柔和环境投影） */
+.tile-lift { transition: transform .2s, box-shadow .2s, border-color .2s; }
+.tile-lift:hover { transform: translateY(-3px); border-color: #d0d3d8; box-shadow: 0 0 0 1px rgba(0,0,0,.04), 0 10px 24px -8px rgba(16,24,40,.14); }
+/* 插件库页签：纯文字两行 label 的加宽排版 */
+.plugins-tabs .ant-tabs-tab { padding: 10px 4px !important; }
+.plugins-tabs .ant-tabs-nav { margin-bottom: 16px; }
 /* 数字/统计全局 tabular（Geist/Grafana 同款——大数字与计数列滚动对齐） */
 .ant-statistic-content-value, [data-tabular] { font-variant-numeric: tabular-nums; }
 `
