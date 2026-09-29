@@ -13,6 +13,7 @@
  * 运行（bkn 更新后重新生成）：
  *   cd /hdd/agent/deepseek-harness
  *   node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/gen-hotpath-prompt.ts
+ * 重新生成后必须 dshctl apply <domain> --yes——组合以内联形式进 profile patch 声明行（v0.1.7 声明式）。
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'

@@ -38,7 +38,7 @@ function fixture(): string {
   return d
 }
 
-/** 迷你 DSH_HOME fixture：profile patch + ops-app patch + preset + skills */
+/** 迷你 DSH_HOME fixture：profile patch（v0.1.7 声明式 preset）+ ops-app patch + preset 作者源 + skills */
 function makeHome(opts: { literalKey?: boolean; extraDisable?: string[] } = {}): string {
   const home = join(fixture(), 'home')
   mkdirSync(join(home, 'profiles', 'ops'), { recursive: true })
@@ -46,6 +46,7 @@ function makeHome(opts: { literalKey?: boolean; extraDisable?: string[] } = {}):
   mkdirSync(join(home, 'presets', 'i2stream-ops'), { recursive: true })
   mkdirSync(join(home, 'skills', 'demo-skill'), { recursive: true })
   const apiKey = opts.literalKey ? "'sk-literal-secret'" : "!!js process.env.OPS_API_KEY ?? ''"
+  const skillRow = `- id: skill-filesystem\n  config:\n    customSkillDirs: ['${join(home, 'skills')}']`
   writeFileSync(join(home, 'profiles', 'ops', 'cordis.patch.yml'), `- insert:
     - id: mcp-i2agent
       name: '@deepseek-ai/dsh-mcp-client'
@@ -67,8 +68,14 @@ function makeHome(opts: { literalKey?: boolean; extraDisable?: string[] } = {}):
           healthDeps: [{ name: i2agent, url: 'http://127.0.0.1:8090' }]
         turnTimeoutSec: 120
         memory: { enabled: true, gatewayUrl: 'http://127.0.0.1:8420' }
-- id: agent-presets
-  config: { default: standard }
+    - id: preset-i2stream-ops
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: i2stream-ops
+        plugins:
+${skillRow.split('\n').map((l) => (l.trim() ? '            ' + l : '')).join('\n')}
+- id: agent-preset-registry
+  config: { default: i2stream-ops }
 `)
   writeFileSync(join(home, 'bundles', 'ops-app', 'cordis.patch.yml'), `- id: ui-goal
   disabled: true
@@ -183,7 +190,9 @@ console.log('\n[5] adopt：字段映射 + 归层 + 密钥红线')
   check('api_key_env 从 !!js 提取', s.api_server?.api_key_env === 'OPS_API_KEY')
   check('headless → gui=null', s.ports?.gui === null)
   check('plugins 仅领域插件（无 ops-api/mcp）', s.plugins?.map((p) => p.id).join(',') === 'bkn-plugin,ops-skill-manager')
-  check('skills_dirs 来自 preset customSkillDirs', s.preset.skills_dirs[0]?.endsWith('skills'))
+  check('skills_dirs 来自 preset 声明行 customSkillDirs', s.preset.skills_dirs[0]?.endsWith('skills'))
+  check('preset.id 取声明行 id（源目录名口径）', s.preset.id === 'i2stream-ops' && s.preset.source.endsWith('presets/i2stream-ops'))
+  check('adopt 导出 preset 作者源两件', !!res.presetAuthoring && res.presetAuthoring['agent.cordis.yml'].includes('skill-filesystem'))
   check('shared_deps 含 healthDeps i2agent + gateway', s.shared_deps?.some((d) => d.name === 'i2agent') && s.shared_deps?.some((d) => d.name === 'memory-gateway'))
   check('capabilities=[remote-exec]', s.capabilities.join(',') === 'remote-exec')
   check('归层：ui-goal/subagent → core', res.classification.core?.includes('ui-goal') && res.classification.core?.includes('subagent'))
@@ -268,21 +277,25 @@ console.log('\n[8] apply：五件生成物渲染 + settings 跳过')
   writeFileSync(join(packsDir, 'core.yml'), renderPackYml({ pack: 'core', disable: { tools: ['ui-goal', 'subagent'] } }))
   writeFileSync(join(packsDir, 'remote-exec.yml'), renderPackYml({ pack: 'remote-exec', disable: {} }))
   const res = applyDomain(spec, packsDir, {})
-  check('落盘五件（ops-app patch/manifest/cordis/patch + presets）', res.written.length >= 5, JSON.stringify(res.written))
+  check('落盘五件（ops-app patch+manifest/cordis+patch/preset 内联于 profile patch）', res.written.length === 5, JSON.stringify(res.written))
   check('settings 缺失 → 提示不写入', res.skipped.some((s) => s.includes('settings.yaml') && s.includes('缺失')) && !res.written.some((w) => w.endsWith('settings.yaml')))
   const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'ops', 'package.json'), 'utf8'))
   check('manifest bundles 三层 + file: 依赖', manifest.dsh.profile.bundles.length === 3 && manifest.dependencies['@deepseek-ai/dsh-ops-app'].startsWith('file:'))
   const patchTxt = readFileSync(join(home, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8')
   check('profile patch：domain-api id/完整 config/!!js env 名', patchTxt.includes('- id: ops-api') && patchTxt.includes('!!js process.env.OPS_API_KEY') && patchTxt.includes('turnTimeoutSec: 120'))
-  check('profile patch：agent-presets + 托管段标记', patchTxt.includes('agent-presets') && patchTxt.includes('OPS-ADMIN MANAGED'))
+  check('profile patch：preset 声明行 + registry default（v0.1.7 声明式）', patchTxt.includes('- id: preset-i2stream-ops') && patchTxt.includes("'@deepseek-ai/dsh-agent-preset'") && patchTxt.includes('default: i2stream-ops') && patchTxt.includes('OPS-ADMIN MANAGED'))
+  check('profile patch：preset 引用与 id 一致', patchTxt.includes('preset: i2stream-ops'))
+  check('profile patch：无目录式残留', !patchTxt.includes('agent-presets') && !patchTxt.includes('roots:'))
   check('ops-app patch 含能力包项', readFileSync(join(home, 'bundles', 'ops-app', 'cordis.patch.yml'), 'utf8').includes('- id: ui-goal'))
-  check('presets：source 在 home 内 → 自拷跳过', res.skipped.some((s) => s.includes('presets') && s.includes('跳过自拷')))
-  // 外部 source → 真拷贝
+  check('preset：作者源不拷贝（内联声明）', res.skipped.some((s) => s.includes('preset') && s.includes('内联')))
+  // 外部 source → 同样内联（不再拷目录），id 取源目录名
   const extSrc = join(fixture(), 'ext-presets')
   mkdirSync(extSrc, { recursive: true })
   writeFileSync(join(extSrc, 'preset.yml'), 'name: x\n')
-  const resExt = applyDomain({ ...spec, preset: { source: extSrc, skills_dirs: [] } }, packsDir, {})
-  check('presets：外部 source → 拷贝到 home/presets/ops', existsSync(join(home, 'presets', 'ops', 'preset.yml')) && resExt.written.some((w) => w.includes('presets/ops/preset.yml')))
+  writeFileSync(join(extSrc, 'agent.cordis.yml'), "- id: persona\n  name: '@deepseek-ai/dsh-persona'\n")
+  const resExt = applyDomain({ ...spec, preset: { source: extSrc, id: 'ext', skills_dirs: [] } }, packsDir, {})
+  const patchExt = readFileSync(join(home, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8')
+  check('presets：外部 source → 内联声明行（id 显式），不拷目录', patchExt.includes('- id: preset-ext') && patchExt.includes("name: \"x\"") && !existsSync(join(home, 'presets', 'ops')))
   check('unit 模板含 DSH_HOME/profile', renderUnit(spec).includes(`Environment="DSH_HOME=${home}"`) && renderUnit(spec).includes('--profile'))
   check('渲染无错误', res.errors.length === 0, JSON.stringify(res.errors))
 }
@@ -808,14 +821,31 @@ console.log('\n[15] v0.4 体验层：domain new 骨架 / 上下文推断 / 空 i
   check('listDomainNames：缺 domain.yml 的目录不算', JSON.stringify(listDomainNames(join(scanRoot, 'domains'))) === JSON.stringify(['a']))
   check('listDomainNames：目录不存在返回空数组', JSON.stringify(listDomainNames(join(scanRoot, 'nope'))) === '[]')
 
-  // ⑤ renderProfilePatch：api 段可选 + 空 insert 省略
+  // ⑤ renderProfilePatch：api 段可选 + preset 声明行（v0.1.7 声明式）+ 缺参 fail-loud
   const { renderProfilePatch } = await import('./render.ts')
-  const apiLess = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: '/p' }, ports: { api: 8644, gui: null } })
-  check('patch：无 api 段 → 不输出空 `- insert:`（防启动 warn）',
-    !apiLess.error && !apiLess.content.includes('- insert:') && apiLess.content.includes('- id: agent-presets'))
-  const withApi = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: '/p' }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120 } })
+  const { loadPresetDeclaration } = await import('./preset.ts')
+  const p15 = join(fixture(), 'p15')
+  mkdirSync(p15, { recursive: true })
+  writeFileSync(join(p15, 'preset.yml'), 'name: P15\norder: 9\n')
+  writeFileSync(join(p15, 'agent.cordis.yml'), `- id: persona\n  name: '@deepseek-ai/dsh-persona'\n  config:\n    prefix: |\n      多行前缀\n      disabled: !!js process.platform === 'win32'\n`)
+  const decl15 = loadPresetDeclaration(p15, 'p15').decl!
+  const apiLess = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null } }, decl15)
+  check('patch：无 api 段仍输出 preset 声明行（insert 非）空',
+    !apiLess.error && apiLess.content.includes('- insert:') && apiLess.content.includes('- id: preset-p15')
+    && apiLess.content.includes("'@deepseek-ai/dsh-agent-preset'") && apiLess.content.includes('default: p15'))
+  check('patch：!!js 表达式与多行块原文保真', apiLess.content.includes("disabled: !!js process.platform === 'win32'") && apiLess.content.includes('多行前缀'))
+  check('patch：preset 元数据来自 preset.yml', apiLess.content.includes('name: "P15"') && apiLess.content.includes('order: 9'))
+  const withApi = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120, plugin_path: '/x/ops-api/index.ts', plugin_id: 'ops-api' } }, decl15)
   check('patch：有 api 段但缺 plugin_path → fail-loud',
-    !!withApi.error && withApi.error.includes('plugin_path'))
+    !!renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120 } }, decl15).error
+    && renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null }, api_server: { port: 8644, api_key_env: 'X_API_KEY', turn_timeout_sec: 120, max_task_duration_sec: 120 } }, decl15).error?.includes('plugin_path'))
+  check('patch：ops-api preset 引用声明 id（p15）', !withApi.error && withApi.content.includes('preset: p15'))
+  const noDecl = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null } })
+  check('patch：spec.preset 有源但缺声明输入 → fail-loud', !!noDecl.error && noDecl.error.includes('preset 声明输入缺失'))
+  const badDir = join(fixture(), 'p15-bad'); mkdirSync(badDir, { recursive: true })
+  writeFileSync(join(badDir, 'agent.cordis.yml'), 'plugins: []\n')
+  check('preset.ts：非行列表 → error', !!loadPresetDeclaration(badDir, 'p15').error)
+  check('preset.ts：作者源缺失 → error', !!loadPresetDeclaration(join(fixture(), 'no-such-preset'), 'p15').error)
 }
 
 // footer
@@ -901,6 +931,58 @@ console.log('\n[16] v0.5 插件单元化：自描述 / scaffold / install / R13 
 
   // ⑦ 导入防护常量
   check('导入防护：解压上限 200MB 常量在位', ZIP_MAX_UNCOMPRESSED === 200 * 1024 * 1024)
+}
+
+console.log('\n[19] v1.6 check R14：preset 引用一致性（声明式 / 目录式残留检测）')
+{
+  const home = makeHome()
+  const src = makeDshSource()
+  const cacheDir = join(fixture(), 'cache19')
+  mkdirSync(cacheDir, { recursive: true })
+  // roster 含声明行合成产物 preset-i2stream-ops → R14 pass
+  writeFileSync(join(cacheDir, 'dump-config-9.9.9.json'), JSON.stringify({ version: '9.9.9', ids: ['ui-goal', 'subagent', 'bash', 'webserver', 'connection', 'agent-preset-registry', 'preset-i2stream-ops'] }))
+  const packsDir = join(fixture(), 'packs19')
+  mkdirSync(packsDir, { recursive: true })
+  writeFileSync(join(packsDir, 'core.yml'), renderPackYml({ pack: 'core', disable: { tools: ['ui-goal', 'subagent'] } }))
+  writeFileSync(join(packsDir, 'remote-exec.yml'), renderPackYml({ pack: 'remote-exec', disable: {} }))
+  // ops-api insert 行带 plugin_id（R14 需读其 config.preset 做三角一致）
+  const spec19 = { ...baseSpec(home, src), api_server: { ...baseSpec(home, src).api_server!, plugin_path: '/x/ops-api/index.ts', plugin_id: 'ops-api' } }
+  const rOk = await runChecks(spec19, join(fixture(), 'r14a.yml'), packsDir, cacheDir, {})
+  check('R14：声明式一致 → pass', rOk.items.some((i) => i.rule === 'R14' && i.level === 'pass' && i.msg.includes('i2stream-ops')), JSON.stringify(rOk.items.filter((i) => i.rule === 'R14')))
+
+  // 负例 1：目录式残留（agent-presets 行）+ 新 roster 无 agent-presets → error（P1 的检测器）
+  const homeLegacy = makeHome()
+  const legacyPatch = readFileSync(join(homeLegacy, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8')
+    .replace(/- id: agent-preset-registry[\s\S]*$/, '- id: agent-presets\n  config: { default: i2stream-ops }\n')
+  writeFileSync(join(homeLegacy, 'profiles', 'ops', 'cordis.patch.yml'), legacyPatch)
+  const rLegacy = await runChecks({ ...spec19, dsh_home: homeLegacy }, join(fixture(), 'r14b.yml'), packsDir, cacheDir, {})
+  check('R14：目录式残留 + 新 roster → warn（P1 检测器，apply 可清偿）',
+    rLegacy.items.some((i) => i.rule === 'R14' && i.level === 'warn' && i.msg.includes('目录式')), JSON.stringify(rLegacy.items.filter((i) => i.rule === 'R14')))
+
+  // 负例 2：ops-api 引用未声明的 preset id（历史 live 形态：preset: ops vs 声明 i2stream-ops）
+  const homeMismatch = makeHome()
+  writeFileSync(join(homeMismatch, 'profiles', 'ops', 'cordis.patch.yml'),
+    readFileSync(join(homeMismatch, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8').replace('preset: i2stream-ops', 'preset: ops'))
+  const rMis = await runChecks({ ...spec19, dsh_home: homeMismatch }, join(fixture(), 'r14c.yml'), packsDir, cacheDir, {})
+  check('R14：ops-api 引用未声明 preset → warn（现状债，apply 可清偿）',
+    rMis.items.some((i) => i.rule === 'R14' && i.level === 'warn' && i.msg.includes("'ops' 未声明")), JSON.stringify(rMis.items.filter((i) => i.rule === 'R14')))
+
+  // 负例 3：registry default 指向未声明 id
+  const homeReg = makeHome()
+  writeFileSync(join(homeReg, 'profiles', 'ops', 'cordis.patch.yml'),
+    readFileSync(join(homeReg, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8').replace('default: i2stream-ops', 'default: other'))
+  const rReg = await runChecks({ ...spec19, dsh_home: homeReg }, join(fixture(), 'r14d.yml'), packsDir, cacheDir, {})
+  check('R14：registry default 未声明 → warn（现状债）',
+    rReg.items.some((i) => i.rule === 'R14' && i.level === 'warn' && i.msg.includes("default 'other' 未声明")), JSON.stringify(rReg.items.filter((i) => i.rule === 'R14')))
+
+  // 缓存未含声明产物 → warn（建议 refresh），不 error
+  const homeStale = makeHome()
+  const staleCache = join(fixture(), 'cache19-stale')
+  mkdirSync(staleCache, { recursive: true })
+  writeFileSync(join(staleCache, 'dump-config-9.9.9.json'), JSON.stringify({ version: '9.9.9', ids: ['ui-goal', 'subagent'] }))
+  const rStale = await runChecks({ ...spec19, dsh_home: homeStale }, join(fixture(), 'r14e.yml'), packsDir, staleCache, {})
+  check('R14：roster 缓存未含声明产物 → warn 提示 refresh',
+    rStale.items.some((i) => i.rule === 'R14' && i.level === 'warn' && i.msg.includes('缓存未见')), JSON.stringify(rStale.items.filter((i) => i.rule === 'R14')))
 }
 
 // footer

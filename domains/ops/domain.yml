@@ -9,7 +9,8 @@ capabilities:
 guard:
   rule_source: bkn
 preset:
-  source: /hdd/demo/public/dsh-info/.dsh-home/presets/i2stream-ops
+  id: i2stream-ops
+  source: /hdd/demo/public/dsh-info/code/presets/i2stream-ops
   skills_dirs:
     - /hdd/demo/public/dsh-info/.dsh-home/skills
 plugins:

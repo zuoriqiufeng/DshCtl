@@ -205,7 +205,7 @@ export function HistoryDots({ entries }: { entries: Array<{ result: string }> })
   )
 }
 
-/** R1-R12 规则一句话图例（折叠） */
+/** R1-R14 规则一句话图例（折叠） */
 const RULES: Array<[string, string]> = [
   ['R1', '端口与登记：domain 唯一、api/gui 端口不冲突、被占用端口与本实例 unit 自证'],
   ['R2', '上游存在性：清单里每个 disable/override id 在新版 roster 仍存在（消失=上游改名，裁剪静默失效）'],
@@ -219,13 +219,15 @@ const RULES: Array<[string, string]> = [
   ['R10', '归层缺口：现状 patch 有、能力包清单无的 id——交人工归层'],
   ['R11', '核心功能不可缺：无槽 core id 禁用即报错；功能槽（slot）内有活跃成员可豁免替换'],
   ['R12', '插件库对齐：领域插件未入库/path 漂移报错；git/zip 导入件未信任出 warn'],
+  ['R13', 'registry 交叉：领域引用的插件 id 不得同时被能力包 disable（语义冲突）'],
+  ['R14', 'preset 一致：声明行 id / registry default / ops-api preset 三角一致；目录式残留（上游 v0.1.7 已移除）报 warn'],
 ]
 
 export function RuleLegend() {
   return (
     <Collapse size="small" style={{ marginTop: 12 }} items={[{
       key: 'legend',
-      label: <Typography.Text type="secondary" style={{ fontSize: 13 }}>规则图例（R1-R12 各查什么）</Typography.Text>,
+      label: <Typography.Text type="secondary" style={{ fontSize: 13 }}>规则图例（R1-R14 各查什么）</Typography.Text>,
       children: (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '4px 16px' }}>
           {RULES.map(([r, d]) => (

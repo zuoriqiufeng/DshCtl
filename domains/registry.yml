@@ -7,10 +7,10 @@ instances:
     systemd_unit: dsh-ops-trial.service
     status: trial
     last_check:
-      at: 2026-09-28
+      at: 2026-09-29
       result: pass
       errors: 0
       warns: 1
-    applied_at: 2026-09-25
+    applied_at: 2026-09-28
 shared_deps: []
 unregistered_ports: []

@@ -73,7 +73,7 @@
 
 ## 踩坑沉淀 / 回填记录
 
-### P1（阻断级，未修 · 需你拍板）· 上游 v0.1.7 移除「目录式 agent preset」，本域实例的 preset 引用全断
+### P1（阻断级 · ✅ 已修，dshctl v1.6）· 上游 v0.1.7 移除「目录式 agent preset」，本域实例的 preset 引用全断
 
 **症状**：8643 实例 `/health` 正常（`preset: ops`），但任何一次对话请求立即 500：
 `RemoteError: Unknown agent preset: ops`。启动日志另有 `patch: entry "agent-presets" not found`（warn）。
@@ -93,7 +93,7 @@
 
 **影响面**：8643 试验实例的 **API 面功能整体不可用**（`/v1/chat/completions`、`/v1/responses`、`/api/sessions` 全部走 preset）；`/health`、`/admin`、`check`、工具装配面（`capabilities.tools.count=16`）不受影响。3080 现网（`/hdd/agent` 树，v0.1.5）仍是目录式机制，暂不受影响；**但它引用的 `ops-api.config.preset: i2stream-ops` 在那棵树上是对的**，若将来把现网升到 v0.1.7 会同样断裂。
 
-**修复方向（三选一，未擅自实施）**：
+**修复（已实施方案 1，commit 见 git log）**：
 1. `renderProfilePatch` 生成声明式 preset 行（`@deepseek-ai/dsh-agent-preset` 一行 + `agent-preset-registry` default 覆写），id 统一用 `spec.domain`；preset 源目录内容读进 `config.plugins`。同时改 `adopt.ts`/`diff.ts`/`domain.ts`/GUI 文案与 dshctl self-test fixture。工作量最大但一次到位，且 `domain new`→`up` 链路在新版 harness 下恢复可用。
 2. 仅对 ops 域手工补一条声明行（临时止血），不动 dshctl；其它域仍会踩。
 3. 保持在 v0.1.6-alpha.1 语义上——即回退 harness 版本（不推荐，等于放弃升级）。

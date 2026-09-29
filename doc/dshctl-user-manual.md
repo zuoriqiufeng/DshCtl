@@ -114,7 +114,7 @@ profile 的 `cordis.patch.yml` 以 **id** 为键增删改插件行：
 ```
 domain.yml ──check(R1-R12)──▶ apply ──▶ $DSH_HOME/profiles/<域>/    manifest + cordis.patch.yml
                                          $DSH_HOME/bundles/ops-app/ 纯增量裁剪层（按 id disable）
-                                         $DSH_HOME/presets/          persona + 热路径
+                                         profile patch preset 声明行    persona + 热路径（作者源 code/presets/）
 ```
 
 ### 能力包（capability packs）
@@ -136,6 +136,7 @@ domain.yml ──check(R1-R12)──▶ apply ──▶ $DSH_HOME/profiles/<域>
 | R4 | script 包必须配命令白名单 |
 | R5 | 契约目录 ⊆ 写白名单 |
 | R6 | skills frontmatter 合法 |
+| R14 | preset 引用一致性（声明行/registry default/ops-api preset 三角） |
 | R7 | 超时配置不倒挂 |
 | R8 | 密钥只准 env 变量名 |
 | R9 | 共享依赖探活 |

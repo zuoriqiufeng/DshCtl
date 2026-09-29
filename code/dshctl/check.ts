@@ -1,7 +1,8 @@
 /**
- * check.ts — F2 对账器（R1-R13 全规则），纯只读；runChecks 为 async（R9 fetch 探活）。
+ * check.ts — F2 对账器（R1-R14 全规则），纯只读；runChecks 为 async（R9 fetch 探活）。
  * 上游 roster：`pnpm dsh --profile <p> --dump-config`（YAML）→ ids，按上游版本缓存于 domains/.cache/。
  * R2/R3 逻辑抽为 reconcileUpstream 纯函数（upgrade-check 复用）。
+ * R14：preset 引用一致性（v0.1.7 声明式；目录式 agent-presets 已被上游移除）。
  */
 import { execFileSync, execSync } from 'node:child_process'
 import { readFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
@@ -14,6 +15,7 @@ import { loadRegistry, findDomainConflicts, saveRegistry, type Registry } from '
 import { mergePacks, loadPacks } from './packs.ts'
 import { loadPluginRegistry, checkDomainPlugins } from './plugin.ts'
 import { loadCoreList, coreIds, coreViolations, slotFindings } from './core.ts'
+import { PRESET_DECL_NAME } from './preset.ts'
 
 export interface CheckItem { rule: string; level: 'pass' | 'warn' | 'error'; msg: string }
 export interface CheckReport {
@@ -160,6 +162,58 @@ export async function runChecks(spec: DomainSpec, regPath: string, packsDir: str
 
   // R13：两套 registry 交叉（领域引用的插件 id 不得同时被能力包 disable——语义冲突）
   items.push(...crossCheckRegistries(spec, mergedEntries.filter((e) => e.disabled).map((e) => e.id)))
+
+  // R14：preset 引用一致性——上游 v0.1.7 移除目录式 agent preset（d1e22a7e24），
+  // profile patch 必须以声明行（preset-<id> / @deepseek-ai/dsh-agent-preset）声明，
+  // 且 agent-preset-registry.default 与 ops-api config.preset 都指向已声明的 id。
+  {
+    const patchPath = join(spec.dsh_home, 'profiles', spec.domain, 'cordis.patch.yml')
+    type Row = { id?: string; name?: string; config?: Record<string, unknown> }
+    type PatchDoc = Row & { insert?: Row[] }
+    const entries = existsSync(patchPath)
+      ? (loadYamlText(readFileSync(patchPath, 'utf8')) as PatchDoc[])
+      : null
+    if (!entries) {
+      items.push({ rule: 'R14', level: 'warn', msg: 'profile patch 缺失——preset 一致性跳过（apply 将创建）' })
+    } else {
+      const declRows = entries.flatMap((e) => e.insert ?? []).filter((r) => r.name === PRESET_DECL_NAME)
+      const legacyRow = entries.some((e) => e.id === 'agent-presets')
+      const regDefault = entries.find((e) => e.id === 'agent-preset-registry')?.config?.default
+      const apiRow = entries.flatMap((e) => e.insert ?? []).find((r) => r.id === (spec.api_server?.plugin_id ?? 'domain-api'))
+      const apiPreset = apiRow?.config?.preset
+      const declIds = declRows.map((r) => String(r.config?.id ?? '')).filter(Boolean)
+
+      // 分级语义：error = 清单/作者源坏了（apply 真会失败）；warn = 实例现状债（apply 可清偿，--strict 下视为失败）
+      if (legacyRow && roster && !roster.ids.includes('agent-presets')) {
+        // 上游目录式机制已移除而 patch 仍打旧 id——正是 v0.1.7 升级后 8643 会话面全断的形态
+        items.push({ rule: 'R14', level: 'warn', msg: '上游 v0.1.7 已移除目录式 agent preset（patch 行 agent-presets 失效，会话 500 Unknown agent preset）——dshctl apply v1.6 可迁移声明式' })
+      } else if (!declRows.length && !legacyRow) {
+        items.push({ rule: 'R14', level: 'error', msg: 'profile patch 未声明任何 agent preset（v0.1.7 起为必需，且无 legacy 可迁移）' })
+      } else if (declRows.length) {
+        // 现状债（apply 重新生成即清偿）→ warn；清单/作者源坏（apply 真会失败）→ error
+        const debts: string[] = []
+        if (typeof apiPreset === 'string' && apiPreset && !declIds.includes(apiPreset)) {
+          debts.push(`ops-api 引用 preset '${apiPreset}' 未声明（已声明: ${declIds.join(', ')}）`)
+        }
+        if (typeof regDefault === 'string' && regDefault && !declIds.includes(regDefault)) {
+          debts.push(`agent-preset-registry default '${regDefault}' 未声明`)
+        }
+        const missing = declIds.filter((id) => roster && !roster.ids.includes(`preset-${id}`))
+        if (missing.length) {
+          debts.push(`合成 roster${roster?.cached ? ' 缓存' : ''}未见: ${missing.map((m) => `preset-${m}`).join(', ')}${roster?.cached ? '（建议 check --refresh 复核）' : ''}`)
+        }
+        const problems: string[] = []
+        if (!spec.preset?.source || !existsSync(join(spec.preset.source, 'agent.cordis.yml'))) {
+          problems.push(`preset 作者源缺 agent.cordis.yml（${spec.preset?.source ?? '未声明'}）`)
+        }
+        for (const d of debts) items.push({ rule: 'R14', level: 'warn', msg: `${d}——dshctl apply 可清偿` })
+        if (problems.length) items.push({ rule: 'R14', level: 'error', msg: problems.join('；') })
+        else if (!debts.length) items.push({ rule: 'R14', level: 'pass', msg: `preset 引用一致（${declIds.join(', ')}；registry default=${String(regDefault)}；ops-api preset=${String(apiPreset)}）` })
+      } else {
+        items.push({ rule: 'R14', level: 'pass', msg: '目录式 preset（旧 harness 机制，roster 可见）' })
+      }
+    }
+  }
 
   // R11：核心功能不可缺——无 slot 的 core id 严格不可裁；带 slot 的 id 同槽有活跃成员即可豁免
   if (opts.coreListPath) {

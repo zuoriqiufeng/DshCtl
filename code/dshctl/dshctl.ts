@@ -51,7 +51,7 @@ const CMDS: CmdHelp[] = [
     name: 'domain new', args: '<name> [--from <已有域>] [--home <DSH_HOME>] [--port <api>] [--source <dsh_source>]', desc: '生成 domain.yml 骨架（路径自动推导，不再手写绝对路径）',
     detail: ['dsh_home 默认取未被占用的 .dsh-home；被现有域占用时自动落到 .dsh-home-<name>',
       'api 端口默认取登记表中未占用的最小值（≥8643）；api_key_env 默认 <NAME>_API_KEY',
-      'preset.source 默认 code/presets/<name>（放 persona + agent.cordis.yml；apply 时拷进 DSH_HOME）',
+      'preset.source 默认 code/presets/<name>（放 persona + agent.cordis.yml；apply 时内联进 profile patch 声明行，id 取本目录名）',
       '骨架只写清单——实例骨架（settings/凭据/unit 安装）仍由 apply 提示人工完成'],
     examples: ['dshctl domain new sql-transform', 'dshctl domain new sql-transform --from ops'],
   },
@@ -61,7 +61,7 @@ const CMDS: CmdHelp[] = [
     examples: ['dshctl adopt --instance ops'],
   },
   {
-    name: 'check', args: '<domain> [--refresh] [--ci] [--strict] [--json]', desc: '对账器（R1 端口/登记 · R2/R3 上游 roster · R4 script 白名单 · R5 契约目录 · R6 skills · R7 超时 · R8 密钥 env · R9 依赖探活 · R10 归层缺口 · R11 核心清单 · R12 插件库 · R13 registry 交叉）',
+    name: 'check', args: '<domain> [--refresh] [--ci] [--strict] [--json]', desc: '对账器（R1 端口/登记 · R2/R3 上游 roster · R4 script 白名单 · R5 契约目录 · R6 skills · R7 超时 · R8 密钥 env · R9 依赖探活 · R10 归层缺口 · R11 核心清单 · R12 插件库 · R13 registry 交叉 · R14 preset 引用一致性）',
     detail: ['--ci = 门禁模式：供 CI/脚本判定（error→1），并强制素色输出；不带时仅 error 也→1，但保留 TTY 着色',
       '--strict = 严格模式：warn 也→1（可与 --ci 组合）'],
     examples: ['dshctl check ops --ci'],
@@ -237,7 +237,7 @@ async function main(): Promise<number> {
       const skeleton = renderDomainSkeleton(name, { home, source, port, presetSource, unit: `dsh-${name}.service`, derived })
       ensureDir(join(DOMAINS, name))
       atomicWrite(dPath, skeleton)
-      // preset 源目录（apply 拷贝源）——空目录合法；skills_dirs 默认不声明（无技能域合法，R6 不扫）
+      // preset 源目录（作者源：apply 读取并内联进 profile patch 声明行）——空目录合法；skills_dirs 默认不声明（无技能域合法，R6 不扫）
       if (asJson) { console.log(JSON.stringify({ domain: name, path: dPath, home, port }, null, 2)); return 0 }
       console.log(`domain new ${name}: 已生成 ${dPath}`)
       console.log(`  dsh_home=${home}${claimed.has(join(ROOT, '.dsh-home')) && home !== join(ROOT, '.dsh-home') ? '（.dsh-home 已被现有域占用——独立 home 避免 ops-app 能力包互相覆盖）' : ''}`)
@@ -274,6 +274,13 @@ async function main(): Promise<number> {
     const ddir = join(DOMAINS, name)
     ensureDir(ddir)
     atomicWrite(join(ddir, 'domain.yml'), renderDomainYml(res.spec))
+    // preset 作者源（v0.1.7 声明式：由声明行反向导出，供 apply 内联重渲染）
+    if (res.presetAuthoring) {
+      const srcDir = join(res.spec.dsh_home, 'presets', res.spec.preset.id ?? name)
+      ensureDir(srcDir)
+      atomicWrite(join(srcDir, 'preset.yml'), res.presetAuthoring['preset.yml'])
+      atomicWrite(join(srcDir, 'agent.cordis.yml'), res.presetAuthoring['agent.cordis.yml'])
+    }
     // DRAFT 片段（仅首次）
     for (const p of res.draftPacks) {
       const pPath = join(PACKS, `${p.pack}.yml`)

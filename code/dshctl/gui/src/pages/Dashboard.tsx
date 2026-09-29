@@ -92,7 +92,7 @@ export default function Dashboard({ onNav, onOpenDomain }: { onNav: (k: string) 
         <Col xs={24} lg={15}>
           <PageCard size="small" title="各领域最近 check" extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>点阵 = 最近 7 次结果（新 → 旧）</Typography.Text>}>
             {last.length === 0 ? (
-              <EmptyState title="还没有 check 记录" desc="check 会逐条对账 R1-R12，结果进历史点阵"
+              <EmptyState title="还没有 check 记录" desc="check 会逐条对账 R1-R14，结果进历史点阵"
                 action={<Button size="small" type="primary" onClick={() => onNav('domains')}>去领域管理跑一次</Button>} />
             ) : (
               <Table rowKey="domain" dataSource={last} pagination={false} size="small"

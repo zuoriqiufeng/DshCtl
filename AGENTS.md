@@ -15,7 +15,7 @@
 | `code/ops-skill-manager/` | 技能自管理插件（skill_manage 工具 + usage 台账 + curator 迁移） | 外部插件，不进 harness 仓 |
 | `code/dshctl/` | 领域编排 CLI（v0.1~v1.1 全量；使用手册 `doc/dshctl-manual.md`） | 交付期工具，只读写文件与配置 |
 | `plugin-registry/` | 插件库：registry.yml 目录 + core.yml 核心功能清单（R11 红线：功能不可缺、功能槽内实现可替换；任何核心 id 可经 slots 声明替代成员后替换）+ sources/ 导入件 | 登记引用为主；git/zip 导入件 trusted=false 需人工信任 |
-| `code/presets/i2stream-ops/` | 运维 agent preset（persona + 热路径） | 热路径块由脚本生成，禁止手改 |
+| `code/presets/i2stream-ops/` | 运维 agent preset 作者源（persona + 热路径） | 热路径块由脚本生成，禁止手改；apply 时内联进 profile patch 声明行（v0.1.7 声明式） |
 | `code/sidecars/` | Python sidecar（embed-server） | 独立进程，不挂 DSH 生命周期 |
 | `code/scripts/` | 生成/计时/冒烟脚本 | — |
 | `doc/gernalarrange/` | 领域编排通用方案 + dshctl 设计 | 跨领域复用资产 |
@@ -46,7 +46,7 @@
 - 未在 `inject` 声明的属性访问会被上下文代理拒绝；缺失服务用 `ctx.get('xxx')` 兜底（返回 undefined）。
 - per-request 上下文（如 memoryKey）用 **AsyncLocalStorage** 穿透工具注册链；无 store 的路径（GUI 会话）给空结果 + 提示语。
 - 类型限制：联合类型用 `type`（esbuild 不支持 `interface A | B`）；`Schema.union().of()` 在当前 schemastery 版本不可用——枚举配置用 `Schema.string()` + normalize。
-- **preset 组合（agent.cordis.yml）只放会话级插件**（persona/skills 等）；进程级服务（compaction/mcp/storage）一律走 host 层或 bundle 默认——preset 挂 process-global 服务会触发 DSH 隔离约束导致全请求 500。
+- **preset 组合（声明行 config.plugins，内容源 agent.cordis.yml）只放会话级插件**（persona/skills 等）；进程级服务（compaction/mcp/storage）一律走 host 层或 bundle 默认——preset 挂 process-global 服务会触发 DSH 隔离约束导致全请求 500。上游 v0.1.7 起 preset 为 profile patch 内声明行（目录式已移除）。
 - **config-only HMR**：改配置（cordis.patch.yml）保存即热重载；**改插件源码必须重启** `pnpm dsh web` 才生效。
 - **新增 config 段时两处都要改**：schema default + `cordis.patch.yml`（只改 schema 不会自动启用）。
 - `dsh-host-webserver` 的 `webServer` 是 `super(ctx,'webServer')` **单例 Service**——禁止 mount 第二个实例；多端口用自建 `node:http` server。

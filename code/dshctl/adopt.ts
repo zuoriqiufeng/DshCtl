@@ -4,9 +4,10 @@
  */
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadYamlFile } from './yml.ts'
+import { loadYamlFile, dumpYaml } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
 import { classify, type CapabilityPack } from './packs.ts'
+import { PRESET_DECL_NAME } from './preset.ts'
 
 export interface AdoptResult {
   spec: DomainSpec
@@ -17,6 +18,8 @@ export interface AdoptResult {
   overrides: Array<{ id: string; inject?: string[]; config?: unknown }>
   /** 首次运行产出的 DRAFT 片段（已有片段时为空） */
   draftPacks: CapabilityPack[]
+  /** preset 作者源两件（由声明行反向生成；落盘由 CLI adopt 分支执行——「adopt 算、CLI 写」分工） */
+  presetAuthoring?: { 'preset.yml': string; 'agent.cordis.yml': string }
 }
 
 interface PatchEntry {
@@ -109,20 +112,46 @@ export function adoptInstance(name: string, home: string, packsDir: string, opts
     warns.push(`unclassified: ${classification.unclassified.join(', ')}（不猜，交人工归层）`)
   }
 
-  // 3) preset / skills_dirs
+  // 3) preset / skills_dirs —— v0.1.7 声明式：优先读 profile patch 声明行（preset-<id>）；
+  //    旧目录式（<home>/presets/<name>/agent.cordis.yml）保留为 fallback（旧 harness adopt 仍可用）
   const presetName = String(apiCfg.preset ?? 'i2stream-ops')
-  const presetFile = join(home, 'presets', presetName, 'agent.cordis.yml')
+  const declRow = profilePatch.flatMap((e) => e.insert ?? []).find((r) => r.name === PRESET_DECL_NAME)
+  const declCfg = (declRow?.config ?? {}) as Record<string, unknown>
+  const regDefault = (profilePatch.find((e) => e.id === 'agent-preset-registry')?.config as Record<string, unknown> | undefined)?.default
   let skillsDirs: string[] = []
-  let presetSource = join(home, 'presets', presetName)
-  if (existsSync(presetFile)) {
-    const presetEntries = loadYamlFile(presetFile) as PatchEntry[]
-    for (const e of presetEntries) {
+  let presetSource: string
+  let presetId: string
+  let presetAuthoring: AdoptResult['presetAuthoring'] | undefined
+  const skillsFromRows = (rows: PatchEntry[]): string[] => {
+    for (const e of rows) {
       if (e.id === 'skill-filesystem') {
-        skillsDirs = ((e.config as Record<string, unknown> | undefined)?.customSkillDirs as string[] | undefined) ?? []
+        return ((e.config as Record<string, unknown> | undefined)?.customSkillDirs as string[] | undefined) ?? []
       }
     }
+    return []
+  }
+  if (declRow && typeof declCfg.id === 'string' && declCfg.id) {
+    presetId = declCfg.id
+    presetSource = join(home, 'presets', presetId)
+    skillsDirs = skillsFromRows((declCfg.plugins as PatchEntry[] | undefined) ?? [])
+    if (typeof regDefault === 'string' && regDefault !== presetId) {
+      warns.push(`R14: agent-preset-registry default '${regDefault}' 与声明行 id '${presetId}' 不一致——建议 re-apply`)
+    }
+    const meta = Object.fromEntries(Object.entries(declCfg).filter(([k]) => ['name', 'description', 'order'].includes(k)))
+    presetAuthoring = {
+      'preset.yml': dumpYaml(meta),
+      'agent.cordis.yml': dumpYaml(declCfg.plugins),
+    }
   } else {
-    warns.push(`preset 文件不存在: ${presetFile}（skills_dirs 置空，交人工补）`)
+    // 旧目录式 fallback
+    presetId = presetName
+    presetSource = join(home, 'presets', presetName)
+    const presetFile = join(presetSource, 'agent.cordis.yml')
+    if (existsSync(presetFile)) {
+      skillsDirs = skillsFromRows(loadYamlFile(presetFile) as PatchEntry[])
+    } else {
+      warns.push(`preset 作者源不存在: ${presetFile}（skills_dirs 置空，交人工补）`)
+    }
   }
   if (!skillsDirs.length && existsSync(join(home, 'skills'))) skillsDirs = [join(home, 'skills')]
 
@@ -151,7 +180,7 @@ export function adoptInstance(name: string, home: string, packsDir: string, opts
     dsh_source: join(home, '..', 'deepseek-harness'),
     capabilities: ['remote-exec'],
     guard: { rule_source: 'bkn' },
-    preset: { source: presetSource, skills_dirs: skillsDirs },
+    preset: { source: presetSource, id: presetId, skills_dirs: skillsDirs },
     plugins,
     api_server: {
       port: apiPort, api_key_env: apiKeyEnv, turn_timeout_sec: turnTimeout, max_task_duration_sec: turnTimeout,
@@ -162,5 +191,5 @@ export function adoptInstance(name: string, home: string, packsDir: string, opts
     ...(opts.unit ? { systemd_unit: opts.unit } : {}),
     shared_deps: sharedDeps,
   }
-  return { spec, warns, classification: Object.fromEntries(Object.entries(classification).map(([k, v]) => [k, v])), overrides, draftPacks }
+  return { spec, warns, classification: Object.fromEntries(Object.entries(classification).map(([k, v]) => [k, v])), overrides, draftPacks, ...(presetAuthoring ? { presetAuthoring } : {}) }
 }

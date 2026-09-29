@@ -1,14 +1,16 @@
 /**
  * diff.ts — 只读 diff。diffOpsApp：能力包 vs ops-app patch（规范化集合，忽略注释/顺序）；
  * diffDomain：四组生成面对账（子集语义——现状多余项记 note 不记差异）。
+ * preset 面自 v0.1.7 声明式（上游 d1e22a7e24）：第 ④ 组对账「作者源 ↔ profile patch 声明行」。
  */
-import { readFileSync, existsSync, readdirSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
-import { loadYamlText } from './yml.ts'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { loadYamlText, dumpYaml, loadYamlFile } from './yml.ts'
 import { mergePacks, loadPacks } from './packs.ts'
 import type { DomainSpec } from './domain.ts'
+import { presetIdOf, PRESET_DECL_NAME } from './preset.ts'
 
-interface PatchEntry { id?: string; disabled?: boolean; inject?: string[]; config?: unknown; insert?: PatchEntry[] }
+interface PatchEntry { id?: string; name?: string; disabled?: boolean; inject?: string[]; config?: unknown; insert?: PatchEntry[] }
 
 function canon(e: PatchEntry): string {
   if (!e.id) return `#noname:${JSON.stringify(e)}`
@@ -43,18 +45,6 @@ export function diffOpsApp(home: string, packsDir: string, capabilities: string[
   for (const r of removed) lines.push(`- ${r}   (现状有、清单无)`)
   for (const a of added) lines.push(`+ ${a}   (清单有、现状无)`)
   return { empty: lines.length === 0, lines }
-}
-
-/** 递归列出目录下相对文件路径集合（presets 文件清单对比用） */
-function listFiles(dir: string, base = dir): string[] {
-  if (!existsSync(dir)) return []
-  const out: string[] = []
-  for (const d of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, d.name)
-    if (d.isDirectory()) out.push(...listFiles(p, base))
-    else out.push(relative(base, p))
-  }
-  return out.sort()
 }
 
 /** 收集 patch 顶层与 insert 内的全部 id */
@@ -92,10 +82,12 @@ export function diffDomain(spec: DomainSpec, packsDir: string): DiffReport {
   }
 
   const api = spec.api_server
-  const wantIds = [...(spec.plugins ?? []).map((p) => p.id), api?.plugin_id ?? 'domain-api', 'agent-presets']
+  const pid = presetIdOf(spec)
+  const wantIds = [...(spec.plugins ?? []).map((p) => p.id), api?.plugin_id ?? 'domain-api', 'agent-preset-registry', `preset-${pid}`]
   const patchPath = join(home, 'profiles', domain, 'cordis.patch.yml')
-  if (existsSync(patchPath)) {
-    const got = new Set(allIds(loadYamlText(readFileSync(patchPath, 'utf8')) as PatchEntry[]))
+  const patchEntries = existsSync(patchPath) ? (loadYamlText(readFileSync(patchPath, 'utf8')) as PatchEntry[]) : null
+  if (patchEntries) {
+    const got = new Set(allIds(patchEntries))
     for (const id of wantIds) if (!got.has(id)) lines.push(`- profile patch 缺 insert: ${id}   (apply 管理面)`)
     const extra = [...got].filter((id) => !wantIds.includes(id))
     if (extra.length) notes.push(`profile patch 现状多余 id（非 apply 生成面，忽略）: ${extra.join(', ')}`)
@@ -103,16 +95,18 @@ export function diffDomain(spec: DomainSpec, packsDir: string): DiffReport {
     lines.push(`- profile patch 缺失: profiles/${domain}/cordis.patch.yml   (apply 将创建)`)
   }
 
-  // ④ presets 文件清单（preset.source 已在 DSH_HOME 内时视为自源自比——adopt 记录的即实例目录）
+  // ④ preset 声明一致性（v0.1.7 声明式：作者源 agent.cordis.yml ↔ profile patch 声明行 config.plugins）
   const src = spec.preset?.source
-  const srcInsideHome = !!src && resolve(src).startsWith(resolve(home) + '/')
-  const dst = srcInsideHome ? src : join(home, 'presets', domain)
-  if (src && existsSync(src)) {
-    const srcFiles = listFiles(src)
-    const dstFiles = existsSync(dst) ? listFiles(dst) : []
-    const { removed, added } = setDiff(dstFiles, srcFiles)
-    for (const r of removed) lines.push(`- presets 多余文件: ${r}`)
-    for (const x of added) lines.push(`+ presets 缺文件: ${x}`)
+  if (!src || !existsSync(join(src, 'agent.cordis.yml'))) {
+    lines.push(`+ preset 作者源缺失（${src ?? '未声明'}/agent.cordis.yml）   (apply 将报错)`)
+  } else if (patchEntries) {
+    const decl = patchEntries.flatMap((e) => e.insert ?? []).find((r) => r.name === PRESET_DECL_NAME)
+    if (!decl) lines.push(`- profile patch 缺 preset 声明行   (apply 管理面)`)
+    else {
+      const srcNorm = dumpYaml(loadYamlFile(join(src, 'agent.cordis.yml')))
+      const declNorm = dumpYaml((decl.config as Record<string, unknown> | undefined)?.plugins)
+      if (srcNorm !== declNorm) lines.push(`! preset 声明行与作者源不一致（改 agent.cordis.yml 后需 re-apply）`)
+    }
   }
 
   return { empty: lines.length === 0, lines, notes }

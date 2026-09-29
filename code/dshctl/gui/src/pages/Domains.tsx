@@ -14,7 +14,7 @@ export type InstStatus = { domain: string; unit: string | null; unitActive: bool
 const RULE_ONELINE: Record<string, string> = {
   R1: '端口与登记唯一性', R2: '上游 id 存在性', R3: '上游新增行评估', R4: 'script 命令白名单',
   R5: '契约目录覆盖', R6: 'skills frontmatter', R7: '超时配置合理性', R8: '密钥 env 名红线',
-  R9: '共享依赖探活', R10: '归层缺口', R11: '核心功能不可缺（槽内可替换）', R12: '插件库对齐',
+  R9: '共享依赖探活', R10: '归层缺口', R11: '核心功能不可缺（槽内可替换）', R12: '插件库对齐', R13: 'registry 交叉冲突', R14: 'preset 引用一致性',
 }
 
 const SECTIONS = ['基本信息', '能力包', '护栏 guard', '契约 contracts', 'preset', '领域插件', 'api_server', 'memory', '端口与托管', 'shared_deps']

@@ -107,7 +107,7 @@ export function SecContracts({ spec, set }: SecProps) {
 export function SecPreset({ spec, setSub }: SecProps) {
   return (
     <Card size="small" style={secStyle('#fa8c16')} title={<SectionTitle icon={<RobotOutlined />} num="⑤" title="preset" desc="persona / 热路径 / 技能从哪来" color="#fa8c16" />}>
-      <Row label="source" tip="agent.cordis.yml + persona 所在目录"><Input value={spec.preset?.source ?? ''} onChange={(e) => setSub('preset', { source: e.target.value })} placeholder="persona/热路径源目录" /></Row>
+      <Row label="source" tip="preset 作者源：persona + agent.cordis.yml（apply 时内联进 profile patch 声明行，id 取本目录名；改源后需 re-apply）"><Input value={spec.preset?.source ?? ''} onChange={(e) => setSub('preset', { source: e.target.value })} placeholder="persona/热路径源目录" /></Row>
       <Row label="skills_dirs" tip="每个子目录一个 SKILL.md（须有 name+description frontmatter，R6）"><TagList value={spec.preset?.skills_dirs ?? []} onChange={(v) => setSub('preset', { skills_dirs: v })} placeholder="技能目录绝对路径" /></Row>
     </Card>
   )

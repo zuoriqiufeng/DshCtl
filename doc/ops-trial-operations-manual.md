@@ -13,7 +13,7 @@
 | api-server | 无独立面（挂 GUI 进程内 :3080/v1） | :8643（Bearer `$OPS_API_KEY`，值见 `$DSH_HOME/ops.env`） |
 | 管理面 | 无 | :8643/admin（`$OPS_ADMIN_KEY`，同 ops.env） |
 | 编排 | web-app 原始面（含编码工具） | ops-app 三层裁剪（纯运维面） |
-| preset | standard（现网 profile 内 i2stream-ops 由 ops-api 指定） | i2stream-ops（拷贝目录含 skill 挂载） |
+| preset | standard（现网 profile 内 i2stream-ops 由 ops-api 指定） | i2stream-ops（声明式：profile patch 内 `preset-i2stream-ops` 声明行，作者源 code/presets/i2stream-ops） |
 | 技能目录 | 共享根 /hdd/demo/public/i2stream-bkn/skill | 拷贝 $DSH_HOME/skills（27 项，/admin 可启停） |
 | sessions/记忆 | 现网 key 空间 | 独立 key 空间（试验期请用 i2agent:e2e:* 前缀） |
 
@@ -40,7 +40,7 @@ journalctl -u dsh-ops-trial -f          # 实时日志（GUI token 也在日志�
 | 技能启停 | /admin 页面 或 /admin/api/skills/<name>/enable|disable | 新会话生效 |
 | api-server key/端口 | $DSH_HOME/profiles/ops/cordis.patch.yml ops-api.apiServer 段 | restart |
 | 模型配置 | $DSH_HOME/settings.yaml / .credentials.yaml | restart |
-| preset 组合 | $DSH_HOME/presets/i2stream-ops/agent.cordis.yml | restart |
+| preset 组合 | `code/presets/i2stream-ops/agent.cordis.yml`（作者源）→ `dshctl apply ops --yes` 内联进 profile patch 声明行 | restart |
 
 托管段约定：profile cordis.patch.yml 内 `# >>> OPS-ADMIN MANAGED >>>` … `# <<< OPS-ADMIN MANAGED <<<` 标记区由 /admin 独占；手工改动标记区内容会让 revision 变化，/admin 侧下次写入自动读新 revision，无需干预。**标记区外的内容不要手工增删 insert 行**——那是编排层（E1 移植的三段 insert）的地盘。
 

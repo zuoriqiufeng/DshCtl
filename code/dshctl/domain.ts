@@ -2,6 +2,7 @@
  * domain.ts — domain.yml（schema:1）解析/校验/渲染；R7（超时）、R8（密钥 env 名）内嵌校验。
  */
 import { loadYamlFile, dumpYaml } from './yml.ts'
+import { PRESET_ID_RE } from './preset.ts'
 
 export interface DomainSpec {
   schema: number
@@ -12,7 +13,7 @@ export interface DomainSpec {
   capabilities: string[]
   contracts?: { media_dirs?: string[] }
   guard?: { rule_source: 'bkn' | 'whitelist' | 'none'; whitelist?: { commands?: string[]; write_paths?: string[] } }
-  preset: { source: string; skills_dirs: string[] }
+  preset: { source: string; /** 声明式 preset id（v0.1.7+）；缺省取 preset.source 目录名 */ id?: string; skills_dirs: string[] }
   plugins?: Array<{ id: string; path: string; config?: unknown }>
   api_server?: {
     port: number
@@ -49,6 +50,9 @@ export function parseDomain(path: string): { spec: DomainSpec | null; errors: st
   }
   if (raw.domain && !DOMAIN_RE.test(String(raw.domain))) errors.push(`domain: ${String(raw.domain)} !~ ${DOMAIN_RE}`)
   const spec = raw as unknown as DomainSpec
+  if (spec.preset?.id !== undefined && !PRESET_ID_RE.test(String(spec.preset.id))) {
+    errors.push(`preset.id '${String(spec.preset.id)}' 非法（须匹配 ${PRESET_ID_RE.source}）`)
+  }
   // R7
   const api = spec.api_server
   if (api) {
@@ -119,7 +123,7 @@ export function renderDomainSkeleton(name: string, o: SkeletonOpts): string {
     `# domains/${name}/domain.yml —— 由 dshctl domain new 生成（schema:1）；密钥只记 env 名`,
     `# 核对清单（路径/端口已按当前环境推导，逐项确认后跑 dshctl check ${name}）：`,
     `#   [ ] dsh_home —— 默认避开已被占用的 .dsh-home（ops-app 能力包按 home 存放，两域共用会互相覆盖）`,
-    `#   [ ] preset.source —— persona + agent.cordis.yml 源目录（apply 时拷进 DSH_HOME/presets/${name}；目录需自建）`,
+    `#   [ ] preset.source —— persona + agent.cordis.yml 源目录（apply 时内联进 profile patch 声明行，preset id=本目录名；目录需自建）`,
     `#   [ ] api_server —— 默认未声明（无 domain-api 插件时 profile patch 无法生成该段）；`,
     `#       需要 OpenAI 兼容 API 面时参照 domains/ops/domain.yml 加 api_server 段并填 plugin_path；`,
     `#       key 值由 systemd EnvironmentFile 注入（R8 只记 env 名，默认 <NAME>_API_KEY=${envName}）`,

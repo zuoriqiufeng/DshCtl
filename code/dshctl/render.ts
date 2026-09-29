@@ -1,9 +1,12 @@
 /**
- * render.ts — apply/diff 共用纯渲染器（设计 §7 五件生成物）。
+ * render.ts — apply/diff 共用渲染器（设计 §7 五件生成物）。
  * domain-api insert id 取 api_server.plugin_id（adopt 回填），保证对现存实例 dry-run diff 为空。
+ * preset 面自 v0.1.7 起为声明式（上游 d1e22a7e24 移除目录式）：本模块只做文本拼装，
+ * 作者源读取（preset.yml/agent.cordis.yml → PresetDecl）在 preset.ts，由 apply 调用方传入。
  */
 import type { DomainSpec } from './domain.ts'
 import { mergePacks, type CapabilityPack } from './packs.ts'
+import { presetIdOf, type PresetDecl } from './preset.ts'
 
 export interface RenderedArtifact { path: string; content: string }
 
@@ -40,13 +43,26 @@ export function renderProfileCordisYml(): string {
   return '# 组合树由 patches 合成——请编辑 cordis.patch.yml，而非本文件（上游 initProfile 同款约定）\n[]\n'
 }
 
-/** ④ profiles/<domain>/cordis.patch.yml：plugins insert + domain-api insert + agent-presets + 托管段标记 */
-export function renderProfilePatch(spec: DomainSpec): { content: string; error?: string } {
+/** 缩进原文块：非空行加 n 空格（空行保持），保真 `!!js`/注释/块标量相对缩进 */
+function indentBlock(text: string, n: number): string[] {
+  return text.split('\n').map((l) => (l.trim() === '' ? '' : ' '.repeat(n) + l))
+}
+
+/**
+ * ④ profiles/<domain>/cordis.patch.yml：
+ * plugins insert + domain-api insert + preset 声明行（v0.1.7 声明式）+ agent-preset-registry default 覆写 + 托管段标记。
+ * preset 声明输入由调用方经 loadPresetDeclaration 提供；spec.preset 存在而 preset 缺参 → fail-loud。
+ */
+export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl): { content: string; error?: string } {
   const api = spec.api_server
   // api_server 段可选（v0.4 起支持无 api 的最小域）：声明了 api_server 但缺 plugin_path 仍 fail-loud
   const pluginPath = api ? (api as { plugin_path?: string }).plugin_path : undefined
   if (api && !pluginPath) return { content: '', error: 'api_server.plugin_path 缺失（adopt 回填或手工声明 domain-api 插件源码路径）' }
+  if (spec.preset?.source && preset === undefined) {
+    return { content: '', error: 'preset 声明输入缺失（v0.1.7 起目录式 agent preset 已移除，需经 loadPresetDeclaration 提供）' }
+  }
   const pluginId = api ? ((api as { plugin_id?: string }).plugin_id ?? 'domain-api') : ''
+  const presetId = preset?.id ?? presetIdOf(spec)
   const y = (v: unknown): string => JSON.stringify(v)
   const insertRows: string[] = []
   for (const p of spec.plugins ?? []) {
@@ -57,7 +73,7 @@ export function renderProfilePatch(spec: DomainSpec): { content: string; error?:
     insertRows.push(`    - id: ${pluginId}`)
     insertRows.push(`      name: ${y(pluginPath)}`)
     insertRows.push('      config:')
-    insertRows.push(`        preset: ${spec.domain}`)
+    insertRows.push(`        preset: ${presetId}`)
     insertRows.push(`        apiKey: ''`)
     insertRows.push('        apiServer:')
     insertRows.push('          enabled: true')
@@ -81,17 +97,26 @@ export function renderProfilePatch(spec: DomainSpec): { content: string; error?:
       insertRows.push('          autoStart: false')
     }
   }
+  // 声明式 preset 行（config.plugins 原文缩进内嵌，保真 `!!js` 与注释）
+  if (preset) {
+    insertRows.push(`    - id: preset-${preset.id}`)
+    insertRows.push(`      name: '@deepseek-ai/dsh-agent-preset'`)
+    insertRows.push('      config:')
+    insertRows.push(`        id: ${preset.id}`)
+    if (preset.meta.name !== undefined) insertRows.push(`        name: ${y(preset.meta.name)}`)
+    if (preset.meta.description !== undefined) insertRows.push(`        description: ${y(preset.meta.description)}`)
+    if (preset.meta.order !== undefined) insertRows.push(`        order: ${preset.meta.order}`)
+    insertRows.push('        plugins:')
+    insertRows.push(...indentBlock(preset.pluginsRaw, 10))
+  }
   const lines: string[] = [
     `# profiles/${spec.domain}/cordis.patch.yml —— 由 dshctl apply 生成（勿手改）`,
   ]
-  // 无插件且无 api 时不输出 `- insert:`（空 insert 行会被 patch 引擎当 non-insert 打启动 warn）
+  // 无插件且无 api 且无 preset 时不输出 `- insert:`（空 insert 行会被 patch 引擎当 non-insert 打启动 warn）
   if (insertRows.length) { lines.push('- insert:'); lines.push(...insertRows) }
-  lines.push('- id: agent-presets')
+  lines.push('- id: agent-preset-registry')
   lines.push('  config:')
-  lines.push(`    default: ${spec.domain}`)
-  lines.push('    roots:')
-  lines.push(`      - path: ${y(`${spec.dsh_home}/presets`)}`)
-  lines.push('        trust: user')
+  lines.push(`    default: ${presetId}`)
   lines.push('# >>> OPS-ADMIN MANAGED >>>   （/admin 托管写入区——标记区外请勿手工增删 insert 行）')
   lines.push('# <<< OPS-ADMIN MANAGED <<<')
   return { content: lines.join('\n') + '\n' }

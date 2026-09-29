@@ -30,7 +30,7 @@
 | pnpm | ≥ 10（实测 11.7） | `pnpm -v` |
 | dshctl 源码 | `/hdd/demo/public/dsh-info/code/dshctl/` | `ls` |
 | **被编排的 harness** | 已 `pnpm install` + `pnpm build` + `pnpm build:web` 的 DSH 源码树（`dsh_source`，即 `deepseek-harness/`）——check 的上游对账与 smoke 起临时实例都要用它 | `ls deepseek-harness/node_modules/.bin/dsh` |
-| 目标实例 | 一个 DSH_HOME（如 `.dsh-home`），其上有 profiles/bundles/presets 等编排产物 | — |
+| 目标实例 | 一个 DSH_HOME（如 `.dsh-home`），其上有 profiles/bundles 等编排产物 | — |
 
 > dshctl **自身**运行不依赖 harness（自带 tsx，见 §3）；但"编排动作"（对账上游 roster、冒烟起实例）需要一个可用的 `dsh_source`。
 
@@ -147,7 +147,7 @@ adopt ops: domains/ops/domain.yml + registry 已登记；DRAFT 片段 4 个
 
 ---
 
-### 4.2 `dshctl check` — 对账器（R1-R10）
+### 4.2 `dshctl check` — 对账器（R1-R14）
 
 **用途**：对一个领域执行全部适用校验（详见 §5），是日常巡检与 CI 的主体。
 
@@ -176,8 +176,8 @@ dshctl diff <domain>        # 退出码 0=空，1=非空
 四组生成面对账（**子集语义**：只比 apply 管理面，现状多余的行如 MCP 托管段记为 note 不算差异）：
 1. 能力包拼接 vs 现状 `bundles/ops-app/cordis.patch.yml`（规范化集合：忽略注释/顺序）；
 2. profile `package.json` 的 bundles 三层列表；
-3. profile patch 中 apply 面 id 的存在性（plugins + domain-api + agent-presets）；
-4. presets 目录文件清单（`preset.source` 已在 DSH_HOME 内时自源自比）。
+3. profile patch 中 apply 面 id 的存在性（plugins + domain-api + agent-preset-registry + preset-<id> 声明行）；
+4. preset 声明一致性（作者源 agent.cordis.yml ↔ 声明行 config.plugins 归一化比对；改源后需 re-apply）。
 
 ---
 
@@ -195,8 +195,8 @@ dshctl apply <domain> --yes --unit-out /tmp/dsh-xxx.service   # 附带落 system
 | # | 生成物 | 内容 |
 |---|---|---|
 | ① | `bundles/ops-app/{package.json,cordis.patch.yml}` | core 隐含 + 勾选能力包拼接（每项注释标来源包） |
-| ② | `profiles/<domain>/{package.json,cordis.yml,cordis.patch.yml}` | bundles 三层 manifest + preset roots 覆写 + plugins insert + domain-api insert（完整 config）+ 空 OPS-ADMIN MANAGED 标记区 |
-| ③ | `presets/<domain>/` | 从 `preset.source` 递归拷贝（source 已在 DSH_HOME 内则跳过自拷） |
+| ② | `profiles/<domain>/{package.json,cordis.yml,cordis.patch.yml}` | bundles 三层 manifest + preset 声明行（`preset-<id>`，config.plugins 内嵌作者源组合）+ `agent-preset-registry` default 覆写 + plugins insert + domain-api insert（完整 config）+ 空 OPS-ADMIN MANAGED 标记区 |
+| ③ | ——（v1.6 起无目录拷贝） | preset 作者源仅被 dshctl 读取并内联进 ② 的声明行；DSH_HOME 内不再有 `presets/` 目录 |
 | ④ | registry | upsert + `applied_at` |
 | ⑤ | systemd unit | 模板输出（stdout 或 `--unit-out`）——**安装由人执行，程序不碰 systemctl** |
 
@@ -302,7 +302,7 @@ dshctl-selftest                    # [1]-[18] 段，fixture 驱动不依赖 live
 dshctl-gui [--port 8780] [--host 127.0.0.1]   # 起 GUI（见 §7）
 ```
 
-## 5. 校验规则 R1-R12 详解
+## 5. 校验规则 R1-R14 详解
 
 | # | 级别 | 检查什么 | 失败了怎么办 |
 |---|---|---|---|
@@ -318,6 +318,8 @@ dshctl-gui [--port 8780] [--host 127.0.0.1]   # 起 GUI（见 §7）
 | **R10** | warn | 归层缺口：现状 ops-app patch 里有、能力包渲染里无的 id（交人工归层） | 把缺口 id 归入正确能力包片段 |
 | **R11** | error | 能力包 disable 命中核心功能清单（`plugin-registry/core.yml`，61 项——核心功能不可缺；清单缺失时降级 warn）。双判据：无槽 id 命中即 error；带 slot 的功能槽载体被禁时，同槽有活跃成员（roster ∪ 本域插件有存在证据）→ pass 并记「槽豁免」，槽被裁空 → error | 从能力包移除该 id，或在 core.yml `slots` 声明同槽成员（自研扩展插件入库后追加 members）；确需调整清单先改 core.yml 并记录理由 |
 | **R12** | error / warn | 领域 `plugins[]`+`api_server` 插件与插件库对齐：未入库/path 漂移 → error；库中 `trusted: false`（git/zip 导入件）→ warn | `dshctl plugin add/publish` 入库；漂移则统一 path；导入件人工 `plugin trust` |
+| **R13** | error | 两套 registry 交叉：领域引用的插件 id 不得同时被能力包 disable（语义冲突） | 从能力包移除该 id，或改领域插件 id |
+| **R14** | error / warn | preset 引用一致性（v0.1.7 声明式）：声明行 `preset-<id>` 存在；`agent-preset-registry.default` 与 ops-api `config.preset` 都指向已声明 id；作者源含 `agent.cordis.yml`。**目录式残留**（patch 打 `agent-presets`，上游 v0.1.7 已移除）→ warn（apply 可清偿）；roster 缓存未含声明产物 → warn（建议 --refresh） | 声明缺失/引用不一致 → `dshctl apply <domain> --yes` 重渲染；作者源缺失 → 补 `preset.source` 目录（preset.yml + agent.cordis.yml） |
 
 ## 6. 数据文件与格式
 
@@ -358,7 +360,8 @@ guard:
     commands: [obclient, mysql]    # 字面前缀或 re:正则
     write_paths: [/tmp, /opt/data]
 preset:
-  source: /path/to/presets/<名>    # persona/热路径源目录（在 DSH_HOME 内则自源自比）
+  id: i2stream-ops                 # 声明式 preset id（缺省取 source 目录名）；声明行/registry default/ops-api preset 三处一致
+  source: /path/to/presets/<名>    # 作者源：persona/热路径 + agent.cordis.yml（apply 读取并内联进 profile patch 声明行；改源后需 re-apply）
   skills_dirs: [/path/to/skills]   # 必须存在且含合法 SKILL.md（R6）
 plugins:                           # 领域工具插件；domain-api 不在此列（由 api_server 自动注入）
   - { id: bkn-plugin, path: /abs/path/index.ts }

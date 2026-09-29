@@ -140,3 +140,9 @@ README 维护约定「可执行代码 ≤1900 行」：本次后 dshctl 实际 ~
 - 2026-09-26 用户拍板"全部重启"：升级第 3 步完成——8643 试验实例已切到 v0.1.7-alpha.2（补齐全仓 lib/ 构建），
   health 200 + NRestarts=0 + check ops --ci 0 error；dshctl GUI 8780 已重启为最新代码，
   绑定 0.0.0.0 + Bearer key（key 存 .dsh-home/gui.env，600）。现网 3080（/hdd/agent 另一棵树 v0.1.5-rc.1）按边界不动。
+- 2026-09-28 BKN v26 适配三项交付（commit 63a3a42）+ 查明阻断级回归：上游 v0.1.7 移除目录式 agent preset
+  （d1e22a7e24），8643 API 面自 09-26 重启起会话全断（Unknown agent preset: ops）——此前验证只测了
+  health/capabilities，未测真实对话，属升级第 2/4 步漏项。
+- 2026-09-28 preset 声明式迁移完成（dshctl v1.6）：renderProfilePatch 改发声明行 + agent-preset-registry
+  default 覆写；apply 不再拷贝 presets 目录；adopt 读声明行反向导出作者源；新增 R14 preset 引用一致性
+  （目录式残留检测器）；8643 已迁移重启，/health 回报 preset=i2stream-ops，对话不再 Unknown agent preset。

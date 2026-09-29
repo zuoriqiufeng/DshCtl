@@ -488,3 +488,18 @@ dshctl-gui [--port 8780]                                   # GUI server（bin/ds
 - **阶段 2（本 commit）**：api.tsx 原子件——PageHead/StatTile 渐变磁贴→tinted 底、StatBand 分层+tabular、StatusRow 文字接 GRAY、`card-hover` hover 边框加深、**新增 `EmptyState` 四件套与 `StatusChip`**（Domains Tagish 下沉）；三标杆页重刷——Dashboard（磁贴收敛/健康值深档/空态 CTA）、Upgrade（verdict 三态 `#1b7a43/#cf222e/#b8860b` 深档/空态 CTA）、Domains（主从空态 CTA/hover 0.15s）。
 - **验收（live）**：build 过 + 标识符扫描零未解析 + tsc 过滤仅存量错；self-test **150 ALL PASSED** + `check ops --ci` 0/0 PASS；重启 8780 200、core API 61/5；清单 md5 `6cb88103…`/`9cac84a2…` 零变化；bundle 新标记（深档三色/近黑按钮/#fafafa/ring 阴影/EmptyState 三标题/tabular×4/Inter woff2×3）全命中，旧标记（inkBarWidth/旧弱阴影/页头渐变）归零。观感拍板交用户（无浏览器后端降级先例）。
 - **遗留（阶段 3 待拍板，本轮明确不做）**：`#8c96a6` 等 inline 字面量残留 20 处（非标杆页）；Plugins/Registry 逐页重刷；Domains 页内 Tab 空态；Manual 长句/画布边标维持观察项；暗色模式（留 token 化后路）；不引 framer-motion/第二图标库。
+
+### preset 声明式迁移补记（2026-09-28，dshctl v1.6：上游 v0.1.7 移除目录式 agent preset 的跟随修复）
+
+上游 `d1e22a7e24`（v0.1.7-alpha.2）删除 `@deepseek-ai/dsh-agent-presets` 包（目录扫描/roots/trust 语义全部失效），
+preset 改为 profile patch 内声明行。影响：`renderProfilePatch` 生成的 `- id: agent-presets` 行成死行（启动 warn
+`patch: entry not found`），`ops-api.config.preset: ops` 与 preset 目录名 `i2stream-ops` 双重错位 → 8643 会话面
+自 09-26 重启起全断（`Unknown agent preset: ops`），此前验证仅测 health/capabilities 未覆盖。
+
+迁移内容：`preset.ts` 新模块（id=作者源目录名口径、原文缩进内嵌保 `!!js`/注释）；`renderProfilePatch` 改发
+`preset-<id>` 声明行 + `agent-preset-registry` default 覆写；apply 删目录拷贝；diff 第④组改声明行一致性；
+adopt 优先读声明行并反向导出作者源（CLI 落盘 `<home>/presets/<id>/`）；**新增 R14 preset 引用一致性**
+（分级：清单/作者源坏=error；现状债=warn 可被 apply 清偿；`--strict` 下 warn 亦失败）。8643 已迁移：
+domain.yml `preset.id: i2stream-ops` + source 改指 `code/presets/i2stream-ops`（作者源单源化），
+apply 落盘后重启，/health 回报正确 preset，对话不再 Unknown agent preset（LLM 内容产出取决于
+mimo-x 渠道恢复，环境项另记）。手册 v1.6 同步（§4.2/4.3/4.4/§5 R14/§6.1）。

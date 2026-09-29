@@ -58,7 +58,7 @@ export default function DomainDetail({ domain, onBack, onNav }: { domain: string
             children: <OrchestrationCanvas key={domain} domain={domain} spec={spec} onSpecChange={setSpec} />,
           },
           { key: 'overview', label: <TabTile icon={<DashboardOutlined />} title="概览" sub="状态 / 起停 / 冒烟 / 插件" color="#52c41a" />, children: <OverviewTab key={domain} domain={domain} onStatusChange={load} /> },
-          { key: 'check', label: <TabTile icon={<CheckCircleOutlined />} title="check 对账" sub="R1-R12 全规则" color="#13c2c2" />, children: <CheckTab domain={domain} /> },
+          { key: 'check', label: <TabTile icon={<CheckCircleOutlined />} title="check 对账" sub="R1-R14 全规则" color="#13c2c2" />, children: <CheckTab domain={domain} /> },
           { key: 'diff', label: <TabTile icon={<DiffOutlined />} title="diff 对比" sub="生成面 vs 现状" color="#722ed1" />, children: <DiffTab domain={domain} /> },
           { key: 'edit', label: <TabTile icon={<EditOutlined />} title="清单编辑" sub="表单改 domain.yml" color="#fa8c16" />, children: <EditorTab key={domain} domain={domain} packs={packs} onSaved={load} /> },
         ]} />

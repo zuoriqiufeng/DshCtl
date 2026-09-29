@@ -1,12 +1,14 @@
 /**
  * apply.ts — F3 落盘：check 有 error 拒绝；写路径必须在 DSH_HOME 内；原子写；settings/.credentials
- * 不生成（环境资产，裁决见 exec-plan §v0.2）；source 已在 home 内的 presets 跳过自拷。
+ * 不生成（环境资产，裁决见 exec-plan §v0.2）。preset 自 v0.1.7 声明式：作者源内联进 profile
+ * patch 声明行，不再拷贝目录（上游 d1e22a7e24 移除目录式机制）。
  */
-import { writeFileSync, copyFileSync, mkdirSync, existsSync, statSync, readdirSync, renameSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { loadPacks } from './packs.ts'
 import type { DomainSpec } from './domain.ts'
 import { renderOpsAppPatch, renderProfileManifest, renderProfileCordisYml, renderProfilePatch, renderUnit } from './render.ts'
+import { loadPresetDeclaration, presetIdOf } from './preset.ts'
 import { diffDomain } from './diff.ts'
 
 export interface ApplyResult {
@@ -30,22 +32,6 @@ function atomicWriteIn(home: string, path: string, content: string, written: str
   writeFileSync(tmp, content)
   renameSync(tmp, path)
   written.push(path)
-}
-
-/** 递归拷贝 preset 源目录 → $DSH_HOME/presets/<domain> */
-function copyPresets(home: string, src: string, domain: string, written: string[]): void {
-  const dst = join(home, 'presets', domain)
-  assertInside(home, dst)
-  const walk = (s: string, d: string): void => {
-    mkdirSync(d, { recursive: true })
-    for (const name of readdirSync(s)) {
-      const sp = join(s, name)
-      const dp = join(d, name)
-      if (statSync(sp).isDirectory()) walk(sp, dp)
-      else { copyFileSync(sp, dp); written.push(dp) }
-    }
-  }
-  if (existsSync(src)) walk(src, dst)
 }
 
 export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?: string } = {}): ApplyResult {
@@ -73,14 +59,19 @@ export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?
 
   atomicWriteIn(home, join(home, 'profiles', spec.domain, 'package.json'), renderProfileManifest(spec.domain), written)
   atomicWriteIn(home, join(home, 'profiles', spec.domain, 'cordis.yml'), renderProfileCordisYml(), written)
-  const patch = renderProfilePatch(spec)
+
+  // preset：作者源（preset.yml + agent.cordis.yml）内联进 profile patch 声明行，不再拷贝目录
+  let presetDecl
+  if (spec.preset?.source) {
+    const loaded = loadPresetDeclaration(spec.preset.source, presetIdOf(spec))
+    if (loaded.error) errors.push(loaded.error)
+    else presetDecl = loaded.decl
+  }
+  const patch = renderProfilePatch(spec, presetDecl)
   if (patch.error) errors.push(patch.error)
   else atomicWriteIn(home, join(home, 'profiles', spec.domain, 'cordis.patch.yml'), patch.content, written)
-
-  if (spec.preset?.source) {
-    if (resolve(spec.preset.source).startsWith(resolve(home) + '/')) {
-      skipped.push(`presets: source 已在 DSH_HOME 内（${spec.preset.source}），跳过自拷`)
-    } else copyPresets(home, spec.preset.source, spec.domain, written)
+  if (spec.preset?.source && !errors.some((e) => e.includes('preset'))) {
+    skipped.push(`preset: 作者源 ${spec.preset.source}（声明式内联进 profile patch，改源后需 re-apply）`)
   }
 
   const unitText = renderUnit(spec)

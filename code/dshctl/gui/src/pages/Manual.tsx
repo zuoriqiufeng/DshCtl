@@ -47,7 +47,7 @@ export default function ManualPage() {
 
         <Section icon={<RocketOutlined />} title="5 分钟上手" color="#52c41a">
           <Step n={1} title="看健康">打开「概览」——统计卡与依赖健康点告诉你体系是否正常；领域行的绿/红点阵是最近 7 次 check 趋势。</Step>
-          <Step n={2} title="跑对账">「领域管理」→ 点领域 → check 页签自动运行。全绿即可放心 apply；有 error 按规则号展开看全文，底部有 R1-R12 图例。</Step>
+          <Step n={2} title="跑对账">「领域管理」→ 点领域 → check 页签自动运行。全绿即可放心 apply；有 error 按规则号展开看全文，底部有 R1-R14 图例。</Step>
           <Step n={3} title="改清单 / 起停">编辑页签表单化改 domain.yml（顶部锚点跳分区）；概览页签可启动/停止/重启实例（真控制 systemctl）或跑冒烟测试（临时实例，不碰现网）。</Step>
         </Section>
 
@@ -94,9 +94,9 @@ export default function ManualPage() {
         <Section icon={<NodeIndexOutlined />} title="dshctl 编排原理" color="#1677ff">
           <Space direction="vertical" size={8} style={{ width: '100%', fontSize: 13 }}>
             <div><Text strong>一份 domain.yml 描述一个领域</Text><Text type="secondary">（端口/能力包/护栏/插件/契约/依赖），check 校验 → apply 幂等生成实例骨架（profile patch + ops-app 裁剪层 + preset）。</Text></div>
-            <CodeBlock>{`domain.yml ──check(R1-R12)──▶ apply ──▶ $DSH_HOME/profiles/<域>/   （manifest + patch）
+            <CodeBlock>{`domain.yml ──check(R1-R14)──▶ apply ──▶ $DSH_HOME/profiles/<域>/   （manifest + patch）
                                    └──▶ $DSH_HOME/bundles/ops-app/ （纯增量裁剪层，按 id disable）
-                                   └──▶ $DSH_HOME/presets/          （persona + 热路径）`}</CodeBlock>
+                                   └──▶ profile patch preset 声明行（作者源 code/presets/）`}</CodeBlock>
             <div>
               <Text strong>能力包</Text><Text type="secondary">：core 恒隐含必裁（UI 面/编码 agent 面）；keep_tools 从 core 裁剪里"放回"工具；每个 id 归属唯一。core.yml 插件库页签里的 61 个核心功能是裁剪红线（R11）——核心功能不可缺，带「可替换」标记的属功能槽（同槽有活跃成员即可替换，自研扩展插件可入槽）。</Text>
             </div>
