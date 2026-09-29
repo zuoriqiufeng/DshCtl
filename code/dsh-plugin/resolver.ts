@@ -318,9 +318,9 @@ export class BKNResolver {
   #traverser?: RelationTraverser
   readonly manifestPath: string
 
-  constructor(bknRoot: string) {
+  constructor(bknRoot: string, manifestPath?: string) {
     this.root = bknRoot
-    this.manifestPath = defaultManifestPath(bknRoot)
+    this.manifestPath = manifestPath || defaultManifestPath(bknRoot)
     this.#loadAll()
   }
 

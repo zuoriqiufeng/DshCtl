@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { loadPacks } from './packs.ts'
 import type { DomainSpec } from './domain.ts'
-import { renderOpsAppPatch, renderProfileManifest, renderProfileCordisYml, renderProfilePatch, renderUnit } from './render.ts'
+import { renderOpsAppPatch, renderProfileManifest, renderProfileCordisYml, renderProfilePatch, renderUnit, extractPluginConfigBlocks } from './render.ts'
 import { loadPresetDeclaration, presetIdOf } from './preset.ts'
 import { diffDomain } from './diff.ts'
 
@@ -34,7 +34,7 @@ function atomicWriteIn(home: string, path: string, content: string, written: str
   written.push(path)
 }
 
-export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?: string } = {}): ApplyResult {
+export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?: string; domainYmlRaw?: string } = {}): ApplyResult {
   const written: string[] = []
   const skipped: string[] = []
   const errors: string[] = []
@@ -67,7 +67,8 @@ export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?
     if (loaded.error) errors.push(loaded.error)
     else presetDecl = loaded.decl
   }
-  const patch = renderProfilePatch(spec, presetDecl)
+  const pluginConfigRaw = opts.domainYmlRaw ? extractPluginConfigBlocks(opts.domainYmlRaw) : undefined
+  const patch = renderProfilePatch(spec, presetDecl, pluginConfigRaw)
   if (patch.error) errors.push(patch.error)
   else atomicWriteIn(home, join(home, 'profiles', spec.domain, 'cordis.patch.yml'), patch.content, written)
   if (spec.preset?.source && !errors.some((e) => e.includes('preset'))) {

@@ -156,10 +156,20 @@ export function adoptInstance(name: string, home: string, packsDir: string, opts
   if (!skillsDirs.length && existsSync(join(home, 'skills'))) skillsDirs = [join(home, 'skills')]
 
   // 4) plugins（领域工具插件；ops-api 由 api_server 段自动注入不列）
-  const plugins: Array<{ id: string; path: string }> = []
+  //    config 一并回收（纯值）；含 env 表达式（!!js）的值 dumpYaml 会引号化失真——不自动回收，warn 提示
+  const plugins: Array<{ id: string; path: string; config?: unknown }> = []
   for (const id of ['bkn-plugin', 'ops-skill-manager']) {
     const e = findInsert(profilePatch, id)
-    if (e?.name) plugins.push({ id, path: String(e.name) })
+    if (!e?.name) continue
+    const cfg = e.config
+    if (cfg === undefined) { plugins.push({ id, path: String(e.name) }); continue }
+    if (/process\.env\./.test(JSON.stringify(cfg))) {
+      const envs = [...new Set(JSON.stringify(cfg).match(/process\.env\.([A-Z_][A-Z0-9_]*)/g) ?? [])].join(', ')
+      warns.push(`R-plugin: ${id}.config 含 env 表达式（${envs || '!!js'}），adopt 不自动回收（写回会引号化失真）——请手工核对 domain.yml 的 plugins[].config`)
+      plugins.push({ id, path: String(e.name) })
+    } else {
+      plugins.push({ id, path: String(e.name), config: cfg })
+    }
   }
 
   // 5) headless 判定 → gui 端口

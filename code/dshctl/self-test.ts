@@ -13,7 +13,7 @@ import { classify, mergePacks, loadPacks, renderPackYml, type CapabilityPack } f
 import { adoptInstance } from './adopt.ts'
 import { runChecks, loadPrevRoster, appendCheckHistory, loadCheckHistory, unitActive, portOccupied } from './check.ts'
 import { diffOpsApp, diffDomain } from './diff.ts'
-import { renderOpsAppPatch, renderProfileManifest, renderProfilePatch, renderUnit } from './render.ts'
+import { renderOpsAppPatch, renderProfileManifest, renderProfilePatch, renderUnit, extractPluginConfigBlocks } from './render.ts'
 import { applyDomain } from './apply.ts'
 import { buildOverlay, pickPort, parseEnvFile, findApiEntry } from './smoke.ts'
 import { runUpgradeCheck } from './upgrade-check.ts'
@@ -985,7 +985,58 @@ console.log('\n[19] v1.6 check R14：preset 引用一致性（声明式 / 目录
     rStale.items.some((i) => i.rule === 'R14' && i.level === 'warn' && i.msg.includes('缓存未见')), JSON.stringify(rStale.items.filter((i) => i.rule === 'R14')))
 }
 
-// footer
+console.log('\n[20] v1.7 插件 config 流转：原文通道渲染 / 无通道防御 / diff 对账 / adopt 回收')
+{
+  const home = makeHome()
+  const src = makeDshSource()
+  const packsDir = join(fixture(), 'packs20')
+  mkdirSync(packsDir, { recursive: true })
+  writeFileSync(join(packsDir, 'core.yml'), renderPackYml({ pack: 'core', disable: { tools: ['ui-goal'] } }))
+  writeFileSync(join(packsDir, 'remote-exec.yml'), renderPackYml({ pack: 'remote-exec', disable: {} }))
+  const b = baseSpec(home, src)
+  const apiB = { ...b.api_server!, plugin_path: '/x/ops-api/index.ts', plugin_id: 'ops-api' }
+  const pluginRow = (cfg: Record<string, unknown>) => [{ id: 'bkn-plugin', path: '/x/dsh-plugin/index.ts', config: cfg }]
+  const rawYml = `plugins:\n  - id: bkn-plugin\n    path: /x/dsh-plugin/index.ts\n    config:\n      bknRoot: /bkn\n      qdrantUrl: !!js process.env.I2STREAM_QDRANT_URL ?? 'http://127.0.0.1:6333'\n`
+  const rawMap = extractPluginConfigBlocks(rawYml)
+  check('extractPluginConfigBlocks：块抽取（去基准缩进，保 !!js 原文）',
+    rawMap['bkn-plugin']?.length === 2 && rawMap['bkn-plugin']![1]!.includes("!!js process.env.I2STREAM_QDRANT_URL"), JSON.stringify(rawMap))
+  // ① 原文通道：!!js 保真进 patch
+  const specRaw: DomainSpec = { ...b, api_server: apiB, plugins: pluginRow({ bknRoot: '/bkn', qdrantUrl: "process.env.I2STREAM_QDRANT_URL ?? 'http://127.0.0.1:6333'" }) }
+  const resRaw = applyDomain(specRaw, packsDir, { domainYmlRaw: rawYml })
+  const patchRaw = readFileSync(join(home, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8')
+  check('apply（原文通道）：patch 含 plugins[].config 且 !!js 保真',
+    resRaw.errors.length === 0 && patchRaw.includes('!!js process.env.I2STREAM_QDRANT_URL'), JSON.stringify(resRaw.errors))
+  // ② 无原文通道：env 表达式形态 → fail-loud（防引号化失真）
+  const resNoRaw = applyDomain(specRaw, packsDir, {})
+  check('apply（无原文通道）：含 env 表达式 → fail-loud',
+    resNoRaw.errors.some((e) => e.includes('env 表达式')), JSON.stringify(resNoRaw.errors))
+  // ③ 无原文通道：纯值 → dumpYaml 兜底
+  const specPlain: DomainSpec = { ...b, api_server: apiB, plugins: pluginRow({ bknRoot: '/bkn', qdrantUrl: 'http://127.0.0.1:6333' }) }
+  const resPlain = applyDomain(specPlain, packsDir, {})
+  const patchPlain = readFileSync(join(home, 'profiles', 'ops', 'cordis.patch.yml'), 'utf8')
+  check('apply（无原文通道）：纯值 dumpYaml 兜底',
+    resPlain.errors.length === 0 && patchPlain.includes('bknRoot: /bkn') && patchPlain.includes('qdrantUrl: http://127.0.0.1:6333'), JSON.stringify(resPlain.errors))
+  // ④ diff 对账：config 一致性（fixture patch 现状 config: {bknRoot: /bkn}）
+  const dStale = diffDomain({ ...specPlain, plugins: pluginRow({ bknRoot: '/bkn-v2' }) }, packsDir)
+  check('diff：plugins[].config 不一致 → 差异行', dStale.lines.some((l) => l.includes('bkn-plugin.config 与清单不一致')), JSON.stringify(dStale.lines))
+  const dSame = diffDomain(specPlain, packsDir) // specPlain 与上一步 apply 落盘结果一致
+  check('diff：config 一致 → 无该行', !dSame.lines.some((l) => l.includes('bkn-plugin.config')), JSON.stringify(dSame.lines))
+  // ⑤ adopt 回收：纯值入 domain.yml；env 表达式的值不回收 + warn（替换 fixture 现有 config 行，避免重复键）
+  const homeA1 = makeHome()
+  const pA1 = join(homeA1, 'profiles', 'ops', 'cordis.patch.yml')
+  writeFileSync(pA1, readFileSync(pA1, 'utf8').replace('      config: { bknRoot: /bkn }', '      config:\n        bknRoot: /bkn\n        guardBlock: true'))
+  const a1 = adoptInstance('ops', homeA1, join(fixture(), 'packsA1'))
+  check('adopt：plugins[].config 纯值回收',
+    JSON.stringify(a1.spec.plugins?.find((x) => x.id === 'bkn-plugin')?.config) === JSON.stringify({ bknRoot: '/bkn', guardBlock: true }),
+    JSON.stringify(a1.spec.plugins))
+  const homeA2 = makeHome()
+  const pA2 = join(homeA2, 'profiles', 'ops', 'cordis.patch.yml')
+  writeFileSync(pA2, readFileSync(pA2, 'utf8').replace('      config: { bknRoot: /bkn }', "      config:\n        qdrantUrl: !!js process.env.I2STREAM_QDRANT_URL ?? 'http://127.0.0.1:6333'"))
+  const a2 = adoptInstance('ops', homeA2, join(fixture(), 'packsA2'))
+  check('adopt：env 表达式值不回收 + warn 点名',
+    a2.spec.plugins?.find((x) => x.id === 'bkn-plugin')?.config === undefined && a2.warns.some((w) => w.includes('R-plugin') && w.includes('I2STREAM_QDRANT_URL')),
+    JSON.stringify({ warns: a2.warns, cfg: a2.spec.plugins }))
+}
 
 // footer
 for (const r of roots) rmSync(r, { recursive: true, force: true })

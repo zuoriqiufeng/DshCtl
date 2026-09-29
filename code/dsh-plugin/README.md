@@ -32,6 +32,10 @@ dsh-plugin/
 ├── riskGuard.ts      constraints.bkn → 代码级风险护栏（state_prerequisite 自动翻译）
 ├── resolver.ts       BKN 加载引擎（Section/tables/kv/同义词/操作注册/兼容性）
 ├── constants.ts      已知数据库与别名归一化
+├── bknContract.ts    BKN v26 契约校验（世代/目录/关键文件区块；strict/warn/off）
+├── retrieval.ts      Qdrant 检索 + embed 调用（configureRetrieval 注入外部地址）
+├── bm25.ts           BM25 + RRF 融合（纯算法，无外部依赖）
+├── supplement.ts     质量闭环（置信度/gap 日志/defer）；configureGapLog 注入日志路径
 ├── self-test.ts      独立自测（node --import tsx/esm self-test.ts）
 └── package.json
 ```
@@ -62,14 +66,44 @@ dsh-plugin/
 **契约校验**：插件启动按 BKN v26 契约（世代号 ≥26、四核心目录、关键文件与区块）校验 `bknRoot`；
 `Config.contractCheck`：`strict`（默认，不匹配拒载——工具消失但实例照常）/ `warn`（日志响亮继续）/ `off`。共享模式下 BKN 上游再重构时，strict 会当场拦住而不是静默错答。
 
-## Config
+## Config（解析链统一：**config → env → 内置常量**）
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `bknRoot` | 共享 BKN `/hdd/demo/public/i2stream-bkn/bkn`（env `I2STREAM_BKN_ROOT` 可覆盖） | BKN 根目录 |
 | `guardEnabled` | `true` | 是否启用风险护栏 |
 | `guardBlock` | `true` | 命中时 deny（`false` = 灰度仅告警） |
-| `mutatingTools` | `['bash','write','edit','patch','run_code']` | 参与命令指纹识别的写类工具 |
+| `mutatingTools` | `['bash','run_code','terminal','execute_code','shell']` | 参与命令指纹识别的写类工具 |
+| `ruleSource` | `bkn` | 护栏规则源：`bkn` / `whitelist`（SQL 域）/ `none` |
+| `whitelistPath` | 相对包根派生 `../guard-rule-sources/whitelist.yml` | whitelist 规则文件（`ruleSource=whitelist` 时生效） |
+| `contractCheck` | `strict` | BKN 契约校验档位（见「BKN 数据源」节） |
+| `qdrantUrl` | `http://127.0.0.1:6333`（env `I2STREAM_QDRANT_URL`） | 外部向量库 Qdrant 地址 |
+| `embedUrl` | `http://127.0.0.1:8096/embed`（env `I2STREAM_EMBED_URL`） | embed sidecar 地址 |
+| `qdrantCollection` | `i2stream_collection`（env `I2STREAM_QDRANT_COLLECTION`） | Qdrant collection 名 |
+| `gapLogPath` | `/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl`（env `I2STREAM_GAP_LOG`） | gap 日志写入路径（相对路径按包根解析，512KB 轮转 3 备份） |
+| `skillManifestPath` | 缺省由 `bknRoot` 派生 `<bknRoot>/../plugin/skill_manifest.yaml`（env `I2STREAM_SKILL_MANIFEST`） | Skill 清单文件路径 |
+
+> **改配置后需 `dshctl apply <domain> --yes`**：域实例的插件 config 由 domain.yml `plugins[].config`
+> 生成进 profile patch 的 insert 行（`!!js` 表达式经原文通道保真）；插件源码内 `configureRetrieval`/
+> `configureGapLog` 在启动时注入，env 改动的兜底路径需重启进程生效。
+
+## 外部依赖（需自行部署/提供）
+
+| 依赖 | 用途 | 配置项 | 环境兜底 | 不可用时行为 |
+|---|---|---|---|---|
+| **Qdrant** 向量库 | `search_qdrant`/`diagnose_db_link` 的 dense 检索（points/query + scroll 建 BM25 索引） | `qdrantUrl` / `qdrantCollection` | `I2STREAM_QDRANT_URL` / `I2STREAM_QDRANT_COLLECTION` | 降级 BM25-only → 空结果 + `_warning`（不抛错，H-15） |
+| **embed sidecar**（BGE） | 查询向量化（与 Hermes 同模型 `BAAI/bge-large-zh-v1.5` 同向量空间） | `embedUrl` | `I2STREAM_EMBED_URL` | 同上（降级链） |
+| **BKN 数据目录** | 全部查询工具的事实来源 | `bknRoot` | `I2STREAM_BKN_ROOT` | 契约校验 strict → 拒载（工具消失，实例照常） |
+| **skill_manifest.yaml** | Skill 指针解析（`resolve_*` 返回的 Skill 名） | `skillManifestPath` | `I2STREAM_SKILL_MANIFEST` | 清单缺失 → Skill 名回退原始 id |
+| **gap 日志目录**（可写） | supplement 质量闭环的 gap 落盘 | `gapLogPath` | `I2STREAM_GAP_LOG` | 写失败静默跳过（非关键路径） |
+
+sidecar 启动（模型缓存经 `HF_HOME` 指向本地，离线可用）：
+
+```sh
+HF_HOME=/hdd/demo/public/chunk/HuggingFace HF_HUB_OFFLINE=1 \
+  /hdd/demo/public/venv/bin/python /hdd/demo/public/dsh-info/code/sidecars/embed-server.py --port 8096 &
+curl http://127.0.0.1:8096/health
+```
 
 ## 已移植工具（12/12）
 
@@ -104,15 +138,15 @@ search_qdrant / diagnose_db_link
       # health: curl http://127.0.0.1:8096/health
 ```
 
-env 覆盖：`I2STREAM_QDRANT_URL`（默认 http://127.0.0.1:6333）、`I2STREAM_EMBED_URL`（默认 http://127.0.0.1:8096/embed）、
-`I2STREAM_QDRANT_COLLECTION`（默认 i2stream_collection）。
+地址与 collection 均为 **config 字段**（`qdrantUrl`/`embedUrl`/`qdrantCollection`，见 Config 表），env 仅作兜底；
+启动时经 `configureRetrieval()` 注入，`settings/updated` 或 re-apply 后可换地址（env 改动需重启进程）。
 降级链：sidecar/Qdrant 不可用 → BM25-only → 空结果 `_warning`（对齐 Hermes client/model None 行为）。
 
 ## supplement 质量闭环（阶段 3 补齐）
 
 `supplement.ts` 1:1 移植 Hermes `tools._wrap` 层：每个 BKN 工具返回统一注入
 `confidence`（full/partial/none）+ `gaps`；partial/none 时 `log_gap`（JSONL，512KB 轮转 3 备份，
-路径 `/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl`，env `I2STREAM_GAP_LOG` 覆盖）
+路径默认 `/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl`，config `gapLogPath` / env `I2STREAM_GAP_LOG` 可覆盖）
 + defer 补查提示：`_instruction`（维度菜单 + hint，Agent 自选 3-5 维 `search_qdrant`）、
 `_skill_recommendation`（BKN 标记的负责 Skill，与 Qdrant 同级并列）、`_search_deferred`/`_coverage_pending`。
 `diagnose_db_link` 另带 `_available_dimensions`（按 symptom 优先级 critical/suggested/optional 排序）。

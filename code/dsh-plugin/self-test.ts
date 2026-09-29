@@ -29,11 +29,13 @@ import {
 } from './riskGuard.ts'
 import { BM25Scorer, buildExactIndex, rrfFusion, tokenize } from './bm25.ts'
 import {
+  configureRetrieval,
   extractExactTerms,
   getDimensionCoverage,
   isValidContent,
   payloadContent,
   resetDimensionCoverage,
+  RETRIEVAL,
   trackDimension,
 } from './retrieval.ts'
 import { DIAGNOSE_DIMENSIONS, extractBknContext, resolveDbType, extractErrorCodes, splitBknText, synthesizeOperationKnowledge } from './tools.ts'
@@ -42,11 +44,13 @@ import {
   buildDimensionHints,
   buildQuery,
   buildSearchInstruction,
+  configureGapLog,
   extractGapKeywords,
   extractSkillFromResult,
   getDimensionPriority,
   logGap,
   rotateIfNeeded,
+  SUPPLEMENT,
   wrapToolResult,
 } from './supplement.ts'
 
@@ -525,6 +529,44 @@ console.log('\n[10] v26 契约校验：世代/目录/关键文件/区块 + stric
   check('契约：off → 不校验不记日志', handleContractResult(bad, 'off', logger).fatal === false && logs.length === logsBefore)
   check('契约：合格 → info 通过语', handleContractResult({ ok: true, generation: 26, issues: [] }, 'strict', logger).fatal === false && logs.some((l) => l.includes('契约校验通过')))
   check('契约：读取台账 API 在位（loadMisses/bknWalkIssues 非静默化）', Array.isArray(new BKNResolver('/hdd/demo/public/i2stream-bkn/bkn').loadMisses) && Array.isArray(bknWalkIssues))
+}
+
+console.log('\n[11] 外部依赖配置化：config > env > 常量 + 运行期注入')
+{
+  const pluginDir = '/hdd/demo/public/dsh-info/code/dsh-plugin'
+  const { resolveExternalDeps, EXTERNAL_DEFAULTS } = await import('./index.ts')
+  // 解析链三级
+  const d1 = resolveExternalDeps({ qdrantUrl: 'http://cfg:6333' }, pluginDir, { I2STREAM_QDRANT_URL: 'http://env:6333', I2STREAM_BKN_ROOT: '/env/bkn' })
+  check('解析链：config 覆盖 env', d1.qdrantUrl === 'http://cfg:6333')
+  const d2 = resolveExternalDeps({}, pluginDir, { I2STREAM_QDRANT_URL: 'http://env:6333', I2STREAM_BKN_ROOT: '/env/bkn' })
+  check('解析链：env 覆盖常量', d2.qdrantUrl === 'http://env:6333' && d2.bknRoot === '/env/bkn')
+  const d3 = resolveExternalDeps({}, pluginDir, {})
+  check('解析链：常量兜底（与 AGENTS §9 端口同值）',
+    d3.qdrantUrl === EXTERNAL_DEFAULTS.qdrantUrl && d3.embedUrl === EXTERNAL_DEFAULTS.embedUrl
+    && d3.qdrantCollection === EXTERNAL_DEFAULTS.qdrantCollection && d3.bknRoot === '/hdd/demo/public/i2stream-bkn/bkn',
+    JSON.stringify(d3))
+  check('路径型相对包根派生（whitelist 默认去硬编码）',
+    d3.gapLogPath === EXTERNAL_DEFAULTS.gapLogPath && d3.whitelistPath === '/hdd/demo/public/dsh-info/code/guard-rule-sources/whitelist.yml', d3.whitelistPath)
+  check('相对 bknRoot（pack 快照模式）按包根解析', resolveExternalDeps({ bknRoot: 'bkn' }, pluginDir, {}).bknRoot === pluginDir + '/bkn')
+  check('skillManifestPath 缺省留空（由 resolver 按 bknRoot 派生）', d3.skillManifestPath === '')
+
+  // 运行期注入（未注入时行为 = 模块加载期 env/常量）
+  const beforeQ = RETRIEVAL.qdrantUrl, beforeC = RETRIEVAL.collection, beforeE = RETRIEVAL.embedUrl
+  const beforeGap = SUPPLEMENT.gapLogPath
+  configureRetrieval({ qdrantUrl: 'http://inj:6333', collection: 'inj_col' })
+  check('configureRetrieval：注入生效', RETRIEVAL.qdrantUrl === 'http://inj:6333' && RETRIEVAL.collection === 'inj_col')
+  check('configureRetrieval：未传字段保持原值', RETRIEVAL.embedUrl === beforeE)
+  configureRetrieval({ qdrantUrl: beforeQ, collection: beforeC })
+  check('configureRetrieval：还原生效', RETRIEVAL.qdrantUrl === beforeQ && RETRIEVAL.collection === beforeC)
+  configureGapLog('/tmp/gap-inj.jsonl')
+  check('configureGapLog：注入生效', SUPPLEMENT.gapLogPath === '/tmp/gap-inj.jsonl')
+  configureGapLog(beforeGap)
+  check('configureGapLog：还原生效', SUPPLEMENT.gapLogPath === beforeGap)
+
+  // manifest 路径透传（BKNResolver 第二参）
+  const BKN_ROOT_11 = '/hdd/demo/public/i2stream-bkn/bkn'
+  check('BKNResolver：显式 manifestPath 透传', new BKNResolver(BKN_ROOT_11, '/tmp/x-manifest.yaml').manifestPath === '/tmp/x-manifest.yaml')
+  check('BKNResolver：缺省按 bknRoot 派生', new BKNResolver(BKN_ROOT_11).manifestPath === '/hdd/demo/public/i2stream-bkn/plugin/skill_manifest.yaml')
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)

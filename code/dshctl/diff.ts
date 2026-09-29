@@ -109,5 +109,19 @@ export function diffDomain(spec: DomainSpec, packsDir: string): DiffReport {
     }
   }
 
+  // ⑤ 插件配置一致性（domain.yml plugins[].config ↔ profile patch insert 行 config）
+  if (patchEntries) {
+    const rows = patchEntries.flatMap((e) => e.insert ?? [])
+    for (const p of spec.plugins ?? []) {
+      const row = rows.find((r) => r.id === p.id)
+      const want = p.config === undefined ? undefined : dumpYaml(p.config)
+      const got = row?.config === undefined ? undefined : dumpYaml(row.config)
+      if (want === got) continue
+      if (want === undefined) lines.push(`- profile patch ${p.id} 含多余 config（清单未声明）`)
+      else if (got === undefined) lines.push(`+ profile patch 缺 ${p.id}.config   (apply 将写入)`)
+      else lines.push(`! ${p.id}.config 与清单不一致   (apply 将重写)`)
+    }
+  }
+
   return { empty: lines.length === 0, lines, notes }
 }

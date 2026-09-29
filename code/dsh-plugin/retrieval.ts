@@ -23,6 +23,17 @@ export const RETRIEVAL = {
   scrollPageSize: 200,
 }
 
+/**
+ * 外部依赖运行期注入（bkn-plugin apply 解析 config 后调用；解析链 config → env → 内置常量）。
+ * 未调用时保持模块加载期的 env/常量值——与配置化之前行为一致；调用后同时重置 BM25 索引缓存。
+ */
+export function configureRetrieval(overrides: Partial<Pick<typeof RETRIEVAL, 'qdrantUrl' | 'embedUrl' | 'collection'>>): void {
+  for (const [k, v] of Object.entries(overrides)) {
+    if (typeof v === 'string' && v) (RETRIEVAL as unknown as Record<string, unknown>)[k] = v
+  }
+  resetBm25()
+}
+
 const searchWarnings: string[] = []
 const bm25Warnings: string[] = []
 function recordSearchWarning(msg: string): void { if (!searchWarnings.includes(msg)) searchWarnings.push(msg) }

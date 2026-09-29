@@ -16,8 +16,21 @@ preset:
 plugins:
   - id: bkn-plugin
     path: /hdd/demo/public/dsh-info/code/dsh-plugin/index.ts
+    config:
+      bknRoot: /hdd/demo/public/i2stream-bkn/bkn
+      qdrantUrl: http://127.0.0.1:6333
+      embedUrl: http://127.0.0.1:8096/embed
+      qdrantCollection: i2stream_collection
+      gapLogPath: /hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl
   - id: ops-skill-manager
     path: /hdd/demo/public/dsh-info/code/ops-skill-manager/index.ts
+    config:
+      skillsDir: /hdd/demo/public/dsh-info/.dsh-home/skills
+      upstreamDir: /hdd/demo/public/i2stream-bkn/skill
+      intervalHours: 168
+      staleAfterDays: 30
+      archiveAfterDays: 90
+      firstRunDelaySec: 120
 api_server:
   port: 8643
   api_key_env: OPS_API_KEY

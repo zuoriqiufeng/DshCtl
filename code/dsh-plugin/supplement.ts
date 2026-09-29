@@ -23,6 +23,11 @@ export const SUPPLEMENT = {
   gapBackups: 3,
 }
 
+/** gap 日志路径运行期注入（bkn-plugin apply 解析 config 后调用；未调用时保持 env/常量值） */
+export function configureGapLog(path: string): void {
+  if (path) SUPPLEMENT.gapLogPath = path
+}
+
 /** REQUIRED_FIELDS（supplement.py 1:1）。 */
 export const REQUIRED_FIELDS: Record<string, string[]> = {
   design_solution: ['scenario', 'description', 'compatibility'],

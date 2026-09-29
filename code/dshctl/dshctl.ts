@@ -158,12 +158,15 @@ function readFileSyncSafe(p: string): string {
 }
 
 /** 域清单加载三连（存在性 → 解析 → 返回 spec 或错误文本）；check/apply/diff/smoke/up 共用 */
-function loadSpec(cmd: string, name: string): { spec: DomainSpec } | { error: string; code: number } {
+function loadSpec(cmd: string, name: string): { spec: DomainSpec; raw: string } | { error: string; code: number } {
   const dPath = join(DOMAINS, name, 'domain.yml')
   if (!fileExists(dPath)) return { error: `${dPath} 不存在${name === 'ops' ? '——先 adopt' : '——先 dshctl domain new ' + name + ' 或 adopt'}`, code: 2 }
   const { spec, errors } = parseDomain(dPath)
   if (!spec) return { error: `domain.yml 解析失败: ${errors.join('; ')}`, code: 2 }
-  return { spec }
+  // raw 供 apply 的 plugins[].config 原文通道（保真 `!!js` 表达式）；读取失败不阻断（退化为解析值渲染）
+  let raw = ''
+  try { raw = readFileSync(dPath, 'utf8') } catch { /* 已存在且可解析，理论不可达 */ }
+  return { spec, raw }
 }
 
 /** check 执行体（check 与 up 共用；写 last_check 历史） */
@@ -319,7 +322,7 @@ async function main(): Promise<number> {
     if ('candidates' in inf) return usageError('apply', `需要 <domain>（候选: ${inf.candidates.join(', ') || '无——先 domain new 或 adopt'}）`)
     const loaded = loadSpec('apply', inf.name)
     if ('error' in loaded) { console.error(`apply: ${loaded.error}`); return loaded.code }
-    const spec = loaded.spec
+    const { spec, raw } = loaded
     const version = (() => { try { return String(JSON.parse(readFileSyncSafe(join(spec.dsh_source, 'package.json')))?.version ?? '0.0.0') } catch { return '0.0.0' } })()
     const report = await runChecks(spec, REGISTRY, PACKS, CACHE, { refresh: false, prevRoster: loadPrevRoster(CACHE, version), pluginRegistryPath: PLUGIN_REGISTRY, coreListPath: CORE_LIST })
     if (report.errors) { printReport(report, asJson); console.error('apply 拒绝：check 有 error（先修复再落盘）'); return 1 }
@@ -334,7 +337,7 @@ async function main(): Promise<number> {
       return d.empty ? 0 : 1
     }
     if (!flags.yes) return usageError('apply', '需要 --yes 确认（写盘操作；建议先 --dry-run 审阅）')
-    const res = applyDomain(spec, PACKS, flags['unit-out'] ? { unitOut: String(flags['unit-out']) } : {})
+    const res = applyDomain(spec, PACKS, { ...(flags['unit-out'] ? { unitOut: String(flags['unit-out']) } : {}), domainYmlRaw: raw })
     if (res.errors.length) { for (const e of res.errors) console.error(`apply 错误: ${e}`); return 2 }
     const reg = loadRegistry(REGISTRY)
     upsertInstance(reg, { domain: spec.domain, dsh_home: spec.dsh_home, ports: spec.ports ?? {}, ...(spec.systemd_unit ? { systemd_unit: spec.systemd_unit } : {}), status: reg.instances.find((i) => i.domain === spec.domain)?.status ?? 'trial', applied_at: new Date().toISOString().slice(0, 10) })
@@ -368,7 +371,7 @@ async function main(): Promise<number> {
       return 0
     }
     // ③ apply
-    const res = applyDomain(loaded.spec, PACKS, {})
+    const res = applyDomain(loaded.spec, PACKS, { domainYmlRaw: loaded.raw })
     if (res.errors.length) { for (const e of res.errors) console.error(`apply 错误: ${e}`); return 2 }
     const reg = loadRegistry(REGISTRY)
     upsertInstance(reg, { domain: loaded.spec.domain, dsh_home: loaded.spec.dsh_home, ports: loaded.spec.ports ?? {}, ...(loaded.spec.systemd_unit ? { systemd_unit: loaded.spec.systemd_unit } : {}), status: reg.instances.find((i) => i.domain === loaded.spec.domain)?.status ?? 'trial', applied_at: new Date().toISOString().slice(0, 10) })

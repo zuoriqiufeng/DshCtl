@@ -7,6 +7,7 @@
 import type { DomainSpec } from './domain.ts'
 import { mergePacks, type CapabilityPack } from './packs.ts'
 import { presetIdOf, type PresetDecl } from './preset.ts'
+import { dumpYaml } from './yml.ts'
 
 export interface RenderedArtifact { path: string; content: string }
 
@@ -49,11 +50,53 @@ function indentBlock(text: string, n: number): string[] {
 }
 
 /**
- * ④ profiles/<domain>/cordis.patch.yml：
- * plugins insert + domain-api insert + preset 声明行（v0.1.7 声明式）+ agent-preset-registry default 覆写 + 托管段标记。
- * preset 声明输入由调用方经 loadPresetDeclaration 提供；spec.preset 存在而 preset 缺参 → fail-loud。
+ * 从 domain.yml 原文抽取各插件 plugins[].config 的块文本（行数组，缩进已剥到相对 0）。
+ * 与 unitize.extractInsertBlock 同款文本法：`!!js` 表达式/注释原样保真，不经 YAML 往返。
+ * 契约：返回行以 config 子级为基准缩进（子级 0、孙级 2…），由 render 重缩进进 patch。
  */
-export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl): { content: string; error?: string } {
+export function extractPluginConfigBlocks(text: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  const lines = text.split('\n')
+  let curId: string | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i]!
+    const trimmed = raw.trim()
+    if (trimmed === '' || trimmed.startsWith('#')) continue
+    const indent = raw.length - raw.trimStart().length
+    if (indent === 0) { curId = null; continue } // 顶层键（含 plugins: 本身）重置
+    if (indent === 2) {
+      const m = /^-\s+id:\s*(\S+)/.exec(trimmed)
+      curId = m ? m[1]! : null
+      continue
+    }
+    if (!curId) continue
+    if (indent === 4 && /^config:\s*(#.*)?$/.test(trimmed)) {
+      const id = curId
+      const block: string[] = []
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j]!
+        if (l.trim() === '') { block.push(''); continue }
+        const li = l.length - l.trimStart().length
+        if (li <= 4) break // config 块结束（同级键或下一条目）——退出后由外层继续处理该行
+        block.push(l.slice(6))
+        i = j
+      }
+      while (block.length && block[block.length - 1]!.trim() === '') block.pop()
+      if (block.length) out[id] = block
+      curId = null
+    }
+  }
+  return out
+}
+
+/**
+ * ④ profiles/<domain>/cordis.patch.yml：
+ * plugins insert（含各自 config）+ domain-api insert + preset 声明行 + agent-preset-registry default 覆写 + 托管段标记。
+ * - preset 声明输入由调用方经 loadPresetDeclaration 提供；spec.preset 存在而 preset 缺参 → fail-loud。
+ * - plugins[].config：优先用 domainYmlRaw 抽出的块原文（保真 `!!js`）；无原文通道时按解析值 dumpYaml，
+ *   检出 env 表达式形状即 error（防 `!!js` 被引号化成字面值静默失真）。
+ */
+export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl, pluginConfigRaw?: Record<string, string[]>): { content: string; error?: string } {
   const api = spec.api_server
   // api_server 段可选（v0.4 起支持无 api 的最小域）：声明了 api_server 但缺 plugin_path 仍 fail-loud
   const pluginPath = api ? (api as { plugin_path?: string }).plugin_path : undefined
@@ -68,6 +111,21 @@ export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl): { con
   for (const p of spec.plugins ?? []) {
     insertRows.push(`    - id: ${p.id}`)
     insertRows.push(`      name: ${y(p.path)}`)
+    const rawCfg = pluginConfigRaw?.[p.id]
+    if (rawCfg && rawCfg.length) {
+      insertRows.push('      config:')
+      for (const l of rawCfg) insertRows.push(l.trim() === '' ? '' : '        ' + l)
+    } else if (p.config !== undefined) {
+      const dumped = dumpYaml(p.config).trimEnd()
+      if (/process\.env\./.test(dumped)) {
+        return {
+          content: '',
+          error: `插件 ${p.id}.config 含 env 表达式（!!js）——当前无 domain.yml 原文通道，dumpYaml 会将其引号化为字面值；请经 dshctl CLI 执行 apply（自带原文通道），或把该值改为字面值`,
+        }
+      }
+      insertRows.push('      config:')
+      for (const l of dumped.split('\n')) insertRows.push('        ' + l)
+    }
   }
   if (api) {
     insertRows.push(`    - id: ${pluginId}`)
