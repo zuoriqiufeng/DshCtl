@@ -22,4 +22,25 @@ provides:
   - design_solution
   - explain_architecture
   - search_qdrant
+external:
+  - key: qdrant
+    desc: 外部向量库 Qdrant（search_qdrant / diagnose_db_link 的 dense 检索）
+    config: qdrantUrl
+    env: I2STREAM_QDRANT_URL
+  - key: embed-sidecar
+    desc: BGE embedding sidecar（查询向量化，与 Hermes 同模型）
+    config: embedUrl
+    env: I2STREAM_EMBED_URL
+  - key: bkn-data
+    desc: 共享 BKN 数据目录（全部查询工具的事实来源，契约校验对象）
+    config: bknRoot
+    env: I2STREAM_BKN_ROOT
+  - key: skill-manifest
+    desc: Skill 清单（resolve_* 返回的 Skill 指针）
+    config: skillManifestPath
+    env: I2STREAM_SKILL_MANIFEST
+  - key: gap-log
+    desc: 质量闭环 gap 日志（可写目录，512KB 轮转）
+    config: gapLogPath
+    env: I2STREAM_GAP_LOG
 category: 知识网

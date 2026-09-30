@@ -12,4 +12,17 @@ provides:
   - 记忆网关接入
   - 依赖健康上报
   - 任务超时/熔断管控
+external:
+  - key: memory-gateway
+    desc: MemoryCore 记忆网关（recall / search / capture 工具与会话注入）
+    config: memory.gatewayUrl
+  - key: agent-preset
+    desc: 会话挂载的 agent preset（v0.1.7 起为 profile patch 内声明行）
+    config: preset
+  - key: skills-dir
+    desc: /admin 技能启停的技能根目录（可写）
+    config: admin.skillsDir
+  - key: patch-path
+    desc: /admin 托管段读写的 profile patch 文件（可写）
+    config: admin.patchPath
 category: 对外 API

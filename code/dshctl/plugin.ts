@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
-import { loadPluginManifest } from './unitize.ts'
+import { loadPluginManifest, type PluginManifest } from './unitize.ts'
 
 export interface PluginEntry {
   id: string
@@ -24,6 +24,8 @@ export interface PluginEntry {
   provides?: string[]
   /** 分类（插件目录分组展示；缺省归「其他」） */
   category?: string
+  /** 外部依赖声明（manifest.external 透传；详情抽屉与 plugin show 展示） */
+  external?: import('./unitize.ts').ManifestExternal[]
   added_at?: string
 }
 
@@ -62,8 +64,20 @@ export function addPlugin(reg: PluginRegistry, e: { id: string; path: string; na
   if (!isPackagePath(e.path) && !existsSync(e.path)) errors.push(`入口文件不存在: ${e.path}`)
   if (errors.length) return { ok: false, errors }
   const source = e.source ?? 'local'
+  // 收编时回读 dsh.plugin.yml 自描述：仅回填**调用方未给**的描述性字段（含 external）；
+  // 显式入参优先——registry.yml 的既有手工值不被覆盖
+  let manifest: PluginManifest | null = null
+  if (!isPackagePath(e.path)) {
+    try { manifest = loadPluginManifest(dirname(e.path)) } catch { /* 读不到不阻断收编 */ }
+  }
+  const fromM = <T>(explicit: T | undefined, m: T | undefined): T | undefined => (explicit !== undefined ? explicit : m)
   const entry: PluginEntry = {
-    id: e.id, ...(e.name ? { name: e.name } : {}), ...(e.description ? { description: e.description } : {}),
+    id: e.id,
+    ...(fromM(e.name, manifest?.name) ? { name: fromM(e.name, manifest?.name) } : {}),
+    ...(fromM(e.description, manifest?.description) ? { description: fromM(e.description, manifest?.description) } : {}),
+    ...(manifest?.provides?.length ? { provides: manifest.provides } : {}),
+    ...(manifest?.category ? { category: manifest.category } : {}),
+    ...(manifest?.external?.length ? { external: manifest.external } : {}),
     tier: 'extension', source, path: e.path,
     trusted: e.trusted ?? source === 'local',
     added_at: new Date().toISOString().slice(0, 10),

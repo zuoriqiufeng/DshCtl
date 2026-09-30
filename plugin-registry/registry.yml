@@ -20,6 +20,27 @@ plugins:
     tier: extension
     category: 知识网
     source: local
+    external:
+    - key: qdrant
+      desc: 外部向量库 Qdrant（search_qdrant / diagnose_db_link 的 dense 检索）
+      config: qdrantUrl
+      env: I2STREAM_QDRANT_URL
+    - key: embed-sidecar
+      desc: BGE embedding sidecar（查询向量化）
+      config: embedUrl
+      env: I2STREAM_EMBED_URL
+    - key: bkn-data
+      desc: 共享 BKN 数据目录（全部查询工具的事实来源）
+      config: bknRoot
+      env: I2STREAM_BKN_ROOT
+    - key: skill-manifest
+      desc: Skill 清单（Skill 指针解析）
+      config: skillManifestPath
+      env: I2STREAM_SKILL_MANIFEST
+    - key: gap-log
+      desc: 质量闭环 gap 日志（可写目录）
+      config: gapLogPath
+      env: I2STREAM_GAP_LOG
     path: /hdd/demo/public/dsh-info/code/dsh-plugin/index.ts
     trusted: true
     added_at: 2026-09-17
@@ -36,6 +57,19 @@ plugins:
     tier: extension
     category: 对外 API
     source: local
+    external:
+    - key: memory-gateway
+      desc: MemoryCore 记忆网关（recall / search / capture）
+      config: memory.gatewayUrl
+    - key: agent-preset
+      desc: 会话挂载的 agent preset
+      config: preset
+    - key: skills-dir
+      desc: /admin 技能启停的技能根目录
+      config: admin.skillsDir
+    - key: patch-path
+      desc: /admin 托管段读写的 profile patch 文件
+      config: admin.patchPath
     path: /hdd/demo/public/dsh-info/code/ops-api/index.ts
     trusted: true
     added_at: 2026-09-17
@@ -49,6 +83,13 @@ plugins:
     tier: extension
     category: 技能管理
     source: local
+    external:
+    - key: skills-dir
+      desc: 被管理技能根目录（写目标）
+      config: skillsDir
+    - key: upstream-dir
+      desc: 共享技能源（sync 只读拉取源）
+      config: upstreamDir
     path: /hdd/demo/public/dsh-info/code/ops-skill-manager/index.ts
     trusted: true
     added_at: 2026-09-17

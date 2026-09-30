@@ -16,4 +16,11 @@ provides:
   - skill_manage（安装/启用/禁用/更新技能）
   - usage 台账
   - curator 迁移
+external:
+  - key: skills-dir
+    desc: 被管理技能根目录（写目标；启停=目录改名）
+    config: skillsDir
+  - key: upstream-dir
+    desc: 共享技能源（sync 动作的只读拉取源）
+    config: upstreamDir
 category: 技能管理

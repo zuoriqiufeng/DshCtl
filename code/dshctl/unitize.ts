@@ -35,9 +35,23 @@ export interface BknSnapshotMeta {
   schemaSha?: string
 }
 
+/** 外部依赖声明（documentation 级：GUI 详情与 `dshctl plugin show` 展示；运行时配置仍走 config schema） */
+export interface ManifestExternal {
+  /** 短 id（如 qdrant / embed-sidecar） */
+  key: string
+  /** 是什么、被哪些工具用 */
+  desc?: string
+  /** 承载连接地址/路径的 config 字段名（缺省=纯文档项） */
+  config?: string
+  /** env 兜底变量名 */
+  env?: string
+}
+
 export interface PluginManifest {
   schema: 1
   id: string
+  /** 显示名（缺省；registry 条目的 name 可由此回填） */
+  name?: string
   /** 入口相对插件目录（默认 index.ts） */
   entry: string
   layout: 'in-place' | 'vendored'
@@ -46,6 +60,8 @@ export interface PluginManifest {
   config?: unknown
   provides?: string[]
   category?: string
+  /** 外部依赖声明（文档面：GUI 详情与 plugin show 展示；运行时配置仍走 config schema） */
+  external?: ManifestExternal[]
   /** BKN 快照元数据（仅 pack --with-bkn 的包内 manifest 携带） */
   bknSnapshot?: BknSnapshotMeta
 }
@@ -59,11 +75,11 @@ export function loadPluginManifest(pluginDir: string): PluginManifest | null {
   if (!existsSync(p)) return null
   const raw = loadYamlText(readFileSync(p, 'utf8')) as Partial<PluginManifest> | null
   if (!raw || raw.schema !== 1 || !raw.id) return null
-  return { schema: 1, id: raw.id, entry: raw.entry ?? 'index.ts', layout: raw.layout ?? 'in-place', ...(raw.description ? { description: raw.description } : {}), ...(raw.config !== undefined ? { config: raw.config } : {}), ...(raw.provides?.length ? { provides: raw.provides } : {}), ...(raw.category ? { category: raw.category } : {}), ...(raw.bknSnapshot ? { bknSnapshot: raw.bknSnapshot } : {}) }
+  return { schema: 1, id: raw.id, ...(raw.name ? { name: raw.name } : {}), entry: raw.entry ?? 'index.ts', layout: raw.layout ?? 'in-place', ...(raw.description ? { description: raw.description } : {}), ...(raw.config !== undefined ? { config: raw.config } : {}), ...(raw.provides?.length ? { provides: raw.provides } : {}), ...(raw.category ? { category: raw.category } : {}), ...(raw.external?.length ? { external: raw.external } : {}), ...(raw.bknSnapshot ? { bknSnapshot: raw.bknSnapshot } : {}) }
 }
 
 export function savePluginManifest(pluginDir: string, m: PluginManifest): void {
-  const header = `# ${MANIFEST_FILE} —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）\n# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/\n`
+  const header = `# ${MANIFEST_FILE} —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）\n# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）| vendored=装配拷贝进 DSH_HOME/plugins/<id>/\n# external: 外部依赖声明（key/desc/config 字段/env 兜底名）——GUI 详情与 dshctl plugin show 展示\n`
   atomicWrite(manifestPath(pluginDir), header + dumpYaml(m))
 }
 

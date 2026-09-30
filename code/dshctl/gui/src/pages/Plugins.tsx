@@ -13,7 +13,7 @@ const tabLabel = (title: string, sub: string) => (
 )
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Plugin = { id: string; name?: string; description?: string; tier?: string; category?: string; source?: string; path: string; trusted: boolean; added_at?: string; depends_on?: string[]; provides?: string[] }
+type Plugin = { id: string; name?: string; description?: string; tier?: string; category?: string; source?: string; path: string; trusted: boolean; added_at?: string; depends_on?: string[]; provides?: string[]; external?: Array<{ key: string; desc?: string; config?: string; env?: string }> }
 type CoreEntry = { id: string; slot?: string; group?: string; desc?: string }
 /** /api/replace 契约（与 dshctl replace 同源引擎） */
 type DiffLine = { t: 'ctx' | 'add' | 'del'; s: string }
@@ -666,6 +666,24 @@ export default function PluginsPage() {
               <div style={{ background: '#fafbfd', border: '1px solid #eef1f6', borderRadius: 10, padding: '12px 14px' }}>
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>依赖 depends_on</Typography.Text>
                 <div><Space wrap size={4} style={{ marginTop: 6 }}>{detail.depends_on.map((d) => <Tag key={d} color="purple" style={{ marginInlineEnd: 0, fontSize: 12 }}>{d}</Tag>)}</Space></div>
+              </div>
+            )}
+            {!!detail.external?.length && (
+              <div style={{ background: '#fafbfd', border: '1px solid #eef1f6', borderRadius: 10, padding: '12px 14px' }}>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>外部依赖 external（连接地址/路径走 config，env 兜底）</Typography.Text>
+                <div style={{ marginTop: 6, display: 'grid', gap: 6 }}>
+                  {detail.external.map((x) => (
+                    <div key={x.key} style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+                      <Typography.Text strong style={{ fontSize: 12, flexShrink: 0 }}>{x.key}</Typography.Text>
+                      {x.desc && <Typography.Text type="secondary" style={{ fontSize: 11.5, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.desc}</Typography.Text>}
+                      <span style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11.5, color: GRAY.weak }}>
+                        {x.config && <Typography.Text code style={{ fontSize: 11.5 }}>config.{x.config}</Typography.Text>}
+                        {x.config && x.env ? ' · ' : ''}
+                        {x.env}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div style={{ background: '#fafbfd', border: '1px solid #eef1f6', borderRadius: 10, padding: '12px 14px' }}>

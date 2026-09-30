@@ -465,6 +465,13 @@ async function main(): Promise<number> {
       console.log(` 入口: ${e.path}`)
       console.log(` 来源: ${e.source ?? 'local'} · trusted=${e.trusted}${e.trusted ? '' : '（git/zip 导入件需人工信任：dshctl plugin trust ' + e.id + '）'}`)
       if (e.depends_on?.length) console.log(` 依赖: ${e.depends_on.join(', ')}`)
+      if (e.external?.length) {
+        console.log(` 外部依赖:`)
+        for (const x of e.external) {
+          const tail = [x.config ? `config.${x.config}` : '', x.env ? `env ${x.env}` : ''].filter(Boolean).join(' · ')
+          console.log(`   - ${x.key}${x.desc ? `——${x.desc}` : ''}${tail ? `（${tail}）` : ''}`)
+        }
+      }
       if (e.provides?.length) console.log(` 提供: ${e.provides.join(', ')}`)
       if (e.category) console.log(` 分类: ${e.category}`)
       if (e.added_at) console.log(` 登记: ${e.added_at}`)
