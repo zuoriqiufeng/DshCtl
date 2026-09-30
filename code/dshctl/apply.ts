@@ -3,11 +3,11 @@
  * 不生成（环境资产，裁决见 exec-plan §v0.2）。preset 自 v0.1.7 声明式：作者源内联进 profile
  * patch 声明行，不再拷贝目录（上游 d1e22a7e24 移除目录式机制）。
  */
-import { writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs'
+import { writeFileSync, chmodSync, mkdirSync, existsSync, renameSync } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
 import { loadPacks } from './packs.ts'
 import type { DomainSpec } from './domain.ts'
-import { renderOpsAppPatch, renderProfileManifest, renderProfileCordisYml, renderProfilePatch, renderUnit, extractPluginConfigBlocks } from './render.ts'
+import { renderOpsAppPatch, renderProfileManifest, renderProfileCordisYml, renderProfilePatch, renderUnit, renderRunnerScript, extractPluginConfigBlocks } from './render.ts'
 import { loadPresetDeclaration, presetIdOf } from './preset.ts'
 import { diffDomain } from './diff.ts'
 
@@ -74,6 +74,11 @@ export function applyDomain(spec: DomainSpec, packsDir: string, opts: { unitOut?
   if (spec.preset?.source && !errors.some((e) => e.includes('preset'))) {
     skipped.push(`preset: 作者源 ${spec.preset.source}（声明式内联进 profile patch，改源后需 re-apply）`)
   }
+
+  // ⑥ 实例专属 runner（自治唯一管理入口；v1.7 起为 apply 生成物）
+  const runnerPath = join(home, `run-${spec.domain}.sh`)
+  atomicWriteIn(home, runnerPath, renderRunnerScript(spec, { port: spec.ports?.api }), written)
+  chmodSync(runnerPath, 0o755)
 
   const unitText = renderUnit(spec)
   if (opts.unitOut) {

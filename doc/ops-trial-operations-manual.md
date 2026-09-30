@@ -24,7 +24,7 @@
 ```sh
 # 启停（需宿主 dbus 访问；沙箱内执行需一次全权限）
 bash /hdd/demo/public/dsh-info/code/scripts/run-ops-trial.sh start|stop|restart|status|logs
-   一键起停两台（GUI+trial）：`bash code/scripts/ops-stack.sh {start|stop|restart|status}`
+   实例起停（自治）：`bash $DSH_HOME/run-ops.sh {start|stop|restart|status|logs}`（apply 生成）；GUI 起停：`bash code/scripts/ops-stack.sh {start|stop|restart|status}`
 
 # 直接用 systemd
 systemctl status dsh-ops-trial

@@ -198,13 +198,32 @@ dshctl apply <domain> --yes --unit-out /tmp/dsh-xxx.service   # 附带落 system
 | ② | `profiles/<domain>/{package.json,cordis.yml,cordis.patch.yml}` | bundles 三层 manifest + preset 声明行（`preset-<id>`，config.plugins 内嵌作者源组合）+ `agent-preset-registry` default 覆写 + plugins insert + domain-api insert（完整 config）+ 空 OPS-ADMIN MANAGED 标记区 |
 | ③ | ——（v1.6 起无目录拷贝） | preset 作者源仅被 dshctl 读取并内联进 ② 的声明行；DSH_HOME 内不再有 `presets/` 目录 |
 | ④ | registry | upsert + `applied_at` |
-| ⑤ | systemd unit | 模板输出（stdout 或 `--unit-out`）——**安装由人执行，程序不碰 systemctl** |
+| ⑤ | systemd unit | 模板输出（stdout 或 `--unit-out`，含 EnvironmentFile 密钥行）——**安装由人执行，程序不碰 systemctl** |
+| ⑥ | `<home>/run-<domain>.sh` | **实例专属 runner**（0o755）：start/stop/restart/status/logs——实例自治的唯一管理入口，变量区由 spec 推导、导出包内可改 |
 
 **显式不生成**：`settings.yaml` / `.credentials.yaml`（模型凭据属环境资产）——已存在跳过，缺失 warn 提示人工拷贝。
 
 ---
 
-### 4.5 `dshctl smoke` — 临时实例冒烟（不动现网）
+### 4.5 `dshctl domain export` — 导出可独立运行的实例包
+
+```sh
+dshctl domain export <domain> [--out <path>] [--no-secrets] [--keep-staging]
+```
+
+打包七类：`profiles/<域>/` 三件 + `bundles/ops-app/` 两件（**re-render**，确定性输出）、
+`ops.env` + `.credentials.yaml`（默认含密钥，开箱能跑；`--no-secrets` 换占位文件）、
+`settings.yaml`（由 `settings.yaml.imported` 还原文件名）、`skills/`、
+`run-<域>.sh`（runner）、`unit/<域>.service`、`export-manifest.json` + `README.md`（导入运行说明）。
+
+不打包：`profiles/node_modules`（符号链接指 harness，导入机 `pnpm install` 重建）、sessions/storages/logs。
+产出缺省 `<home>/exports/dsh-export-<域>-<日期>.tgz`。
+
+**导入机前提**：同版本 harness 树 + `pnpm install`；外部服务可达（见包内 README 与 export-manifest.json）。
+导入三步：解压为 DSH_HOME → `profiles/<域> pnpm install` → `bash run-<域>.sh start`
+（常驻可改用 `unit/<域>.service`）。GUI 侧同一入口：领域详情「导出实例」按钮（浏览器直接下载 tgz）。
+
+### 4.6 `dshctl smoke` — 临时实例冒烟（不动现网）
 
 ```sh
 dshctl smoke <domain>            # 健康 + api-smoke 五连测 + 领域自检
@@ -431,6 +450,7 @@ dshctl-gui --host 0.0.0.0            # 或 --host 192.168.34.66 绑定指定地�
 | 实例登记 | registry 表 + 未登记端口提示 | `dshctl registry` |
 | 领域管理 · check | 逐规则 pass/warn/error 表 + 运行按钮（loading 态） | `dshctl check <domain>` |
 | 领域管理 · diff | 差异清单/一致提示 + notes | `dshctl diff <domain>` |
+| 领域管理 · 实例控制 | 概览页签：启动/停止/重启（**瞬态 unit 被 GC 时自动 systemd-run 冷启动**）+ 冒烟测试 + **导出实例**（浏览器下载自包含 tgz） | `systemctl <action> <unit>` / `dshctl domain export <域>` |
 | 领域管理 · 清单编辑 | **表单化模块编辑**（基本信息/能力包/护栏/契约/preset/plugins/api_server/memory/端口与托管/shared_deps 分区卡片），保存即 schema 校验 + 原子写（失败拒绝、空段自动省略）；原始 YAML 只读折叠可查 | 编辑文件 + `dshctl check` |
 | 新建领域（领域选择条按钮） | 同款表单 + domain 名正则校验；创建只写 domain.yml，成功自动切到新域并提示 `check → apply --dry-run → --yes` | `dshctl apply <name> --dry-run` |
 | 升级对账 | 全领域对账表 + verdict 三态徽标 | `dshctl upgrade-check` |

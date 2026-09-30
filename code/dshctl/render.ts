@@ -180,16 +180,17 @@ export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl, plugin
   return { content: lines.join('\n') + '\n' }
 }
 
-/** ⑤ systemd unit 模板（输出到 stdout/文件，安装由人执行——程序不碰 systemctl） */
+/** ⑤ systemd unit 模板（输出到 stdout/文件，安装由人执行——程序不碰 systemctl）；含 EnvironmentFile（实例密钥行） */
 export function renderUnit(spec: DomainSpec): string {
   return [
     `[Unit]`,
-    `# 由 dshctl apply 生成模板——transient unit 参照 code/scripts/run-ops-trial.sh`,
+    `# 由 dshctl apply 生成模板——与实例 runner（run-${spec.domain}.sh）同参数`,
     `After=network-online.target`,
     ``,
     `[Service]`,
     `Restart=on-failure`,
     `WorkingDirectory=${spec.dsh_source}`,
+    `EnvironmentFile=${spec.dsh_home}/ops.env`,
     `Environment="DSH_HOME=${spec.dsh_home}"`,
     `ExecStart="/usr/bin/env" "pnpm" "dsh" "--profile" "${spec.domain}"`,
     ``,
@@ -197,4 +198,72 @@ export function renderUnit(spec: DomainSpec): string {
     `WantedBy=multi-user.target`,
     ``,
   ].join('\n')
+}
+
+/**
+ * ⑥ 实例专属运行脚本（`<home>/run-<domain>.sh`，0o755）——实例自治的唯一管理入口：
+ * 变量区全部由 spec 推导；动作 start（systemd-run 四件套 + health 就绪轮询）/stop/restart/status/logs。
+ * 导出场景：顶部变量区在导入机可改（HOME_DIR/DSH_SOURCE/ENV_FILE）。
+ */
+export function renderRunnerScript(spec: DomainSpec, opts: { port?: number } = {}): string {
+  const home = spec.dsh_home
+  const domain = spec.domain
+  const unit = spec.systemd_unit ?? `dsh-${domain}`
+  const harness = spec.dsh_source
+  const port = opts.port ?? spec.ports?.api ?? 0
+  const envFile = `${home}/ops.env`
+  return `#!/bin/bash
+# run-${domain}.sh —— ${domain} 实例专属启停（由 dshctl apply 生成；换环境时改顶部变量区即可）
+#
+# 实例自治：本脚本即实例的唯一管理入口（不依赖任何项目侧脚本）。
+# start/stop 需要宿主 systemd 权限（dbus）；status/logs 无需。
+#
+# 用法：bash run-${domain}.sh {start|stop|restart|status|logs}
+
+set -u
+HOME_DIR='${home}'
+DSH_SOURCE='${harness}'
+PROFILE='${domain}'
+UNIT='${unit}'
+PORT=${port}
+ENV_FILE='${envFile}'
+
+is_up() { systemctl is-active --quiet "$UNIT" 2>/dev/null; }
+
+case "\${1:-status}" in
+  start)
+    if is_up; then echo already-running; exit 0; fi
+    mkdir -p "$HOME_DIR/logs"
+    systemd-run --unit="$UNIT" \\
+      --property=Restart=on-failure \\
+      --property=WorkingDirectory="$DSH_SOURCE" \\
+      --property=EnvironmentFile="$ENV_FILE" \\
+      --setenv=DSH_HOME="$HOME_DIR" \\
+      /usr/bin/env pnpm dsh --profile "$PROFILE" || exit 1
+    for _ in $(seq 1 30); do
+      curl -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/health" && break
+      sleep 1
+    done
+    echo started
+    ;;
+  stop)
+    systemctl stop "$UNIT" 2>/dev/null
+    echo stopped
+    ;;
+  restart)
+    systemctl restart "$UNIT" 2>/dev/null && echo restarted
+    ;;
+  status)
+    if is_up; then echo "unit : active ($UNIT)"; else echo "unit : inactive ($UNIT)"; fi
+    curl -s -m 3 -o /dev/null -w "health :$PORT/health -> %{http_code}\\n" "http://127.0.0.1:$PORT/health"
+    ;;
+  logs)
+    journalctl -u "$UNIT" -f
+    ;;
+  *)
+    echo "usage: bash run-${domain}.sh {start|stop|restart|status|logs}"
+    exit 1
+    ;;
+esac
+`
 }

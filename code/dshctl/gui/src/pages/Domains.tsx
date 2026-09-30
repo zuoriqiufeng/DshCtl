@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Tabs, Button, Empty, Skeleton, Table, Space, Typography, Collapse, Segmented, Tooltip, Badge, Popconfirm, App as AntApp } from 'antd'
-import { PlayCircleOutlined, ReloadOutlined, DiffOutlined, EditOutlined, CheckCircleOutlined, PlusOutlined, FileTextOutlined, RightOutlined, FolderOpenOutlined, StopOutlined, PoweroffOutlined, RedoOutlined, ThunderboltOutlined, DashboardOutlined, ApiOutlined, AppstoreOutlined } from '@ant-design/icons'
-import { GRAY, api, PageHead, PageCard, LevelDot, RuleLegend, StatBand, cardStyle, Hint, StatusRow, CommandChip, StateDot, CodeBlock, EmptyState, StatusChip, type Spec } from '../api.tsx'
+import { PlayCircleOutlined, ReloadOutlined, DiffOutlined, EditOutlined, CheckCircleOutlined, PlusOutlined, FileTextOutlined, RightOutlined, FolderOpenOutlined, StopOutlined, PoweroffOutlined, RedoOutlined, ThunderboltOutlined, DashboardOutlined, ApiOutlined, AppstoreOutlined, ExportOutlined } from '@ant-design/icons'
+import { GRAY, api, authHeaders, PageHead, PageCard, LevelDot, RuleLegend, StatBand, cardStyle, Hint, StatusRow, CommandChip, StateDot, CodeBlock, EmptyState, StatusChip, type Spec } from '../api.tsx'
 import DomainForm from './DomainForm.tsx'
 import DomainDetail from './DomainDetail.tsx'
 import NewDomain from './NewDomain.tsx'
@@ -62,6 +62,25 @@ export function OverviewTab({ domain, onStatusChange }: { domain: string; onStat
     }
     load(); onStatusChange()
   }
+  const [exporting, setExporting] = useState(false)
+  const exportInstance = async () => {
+    setExporting(true)
+    try {
+      const r = await api<{ token?: string; bytes?: number; error?: string; notes?: string[] }>(
+        `/api/instance/${domain}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secrets: true }) })
+      if (r.error || !r.data?.token) { message.error(r.error ?? '导出失败'); return }
+      // 下载：token 一次性，经 fetch 带 Bearer 取 blob（<a> 直链无法带鉴权头）
+      const dl = await fetch(`/api/instance/${domain}/export?token=${r.data.token}`, { headers: authHeaders() })
+      if (!dl.ok) { message.error(`下载失败 HTTP ${dl.status}`); return }
+      const blob = await dl.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = `dsh-export-${domain}-${new Date().toISOString().slice(0, 10)}.tgz`
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+      message.success(`导出完成（${((r.data.bytes ?? 0) / 1024).toFixed(0)} KB）——解压后 run-${domain}.sh start 即可独立运行`, 6)
+      for (const n of r.data.notes ?? []) message.warning(n, 6)
+    } finally { setExporting(false) }
+  }
   const runSmoke = async () => {
     setSmoking(true); setSmoke(null)
     const r = await api<any>(`/api/instance/${domain}/smoke`, { method: 'POST' })
@@ -107,6 +126,9 @@ export function OverviewTab({ domain, onStatusChange }: { domain: string; onStat
             </Popconfirm>
             <Tooltip title="临时实例冒烟（+100 端口，不碰现网）——验证配置正确性">
               <Button icon={<ThunderboltOutlined />} loading={smoking} onClick={runSmoke}>冒烟测试</Button>
+            </Tooltip>
+            <Tooltip title="导出为自包含 tgz（生成物+密钥+skills+runner，解压后 run-<域>.sh 可独立起停；含密钥，分发前注意脱敏）">
+              <Button icon={<ExportOutlined />} loading={exporting} onClick={exportInstance} disabled={!st?.unit}>导出实例</Button>
             </Tooltip>
           </Space>
         </div>

@@ -85,8 +85,11 @@ bash /hdd/demo/public/dsh-info/code/scripts/bench-tools.ts   # 工具层 <100ms/
 bash /hdd/demo/public/dsh-info/code/scripts/bench-4q.sh http://127.0.0.1:3080 i2stream-ops
 bash /hdd/demo/public/dsh-info/code/scripts/api-smoke.sh
 
-# 项目起停一键（GUI 8780 + 试验实例 8643；status 看两台健康）
+# 工作台起停（仅 dshctl GUI 8780）
 bash /hdd/demo/public/dsh-info/code/scripts/ops-stack.sh {start|stop|restart|status}
+
+# 实例起停（实例自治：apply 生成的专属 runner，在实例自己的 DSH_HOME 内）
+bash /hdd/demo/public/dsh-info/.dsh-home/run-ops.sh {start|stop|restart|status|logs}
 
 # dshctl（自带 tsx，任意目录可跑，无需 cd）
 dshctl check ops --ci

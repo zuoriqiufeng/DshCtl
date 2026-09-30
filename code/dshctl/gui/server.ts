@@ -14,6 +14,7 @@ import { diffDomain } from '../diff.ts'
 import { runChecks, loadPrevRoster, loadCheckHistory, appendCheckHistory, unitActive, portOccupied } from '../check.ts'
 import { runUpgradeCheck } from '../upgrade-check.ts'
 import { runSmoke } from '../smoke.ts'
+import { exportDomain } from '../export.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins } from '../plugin.ts'
 import { loadCoreList } from '../core.ts'
 import { runReplace, type ReplacePaths } from '../replace.ts'
@@ -28,6 +29,21 @@ const PLUGIN_REGISTRY = join(ROOT, 'plugin-registry', 'registry.yml')
 const CORE_LIST = join(ROOT, 'plugin-registry', 'core.yml')
 const PLUGIN_SOURCES = join(ROOT, 'plugin-registry', 'sources')
 const DIST = join(import.meta.dirname, 'dist')
+/** 导出下载一次性 token（token → tgz 绝对路径；60s 过期） */
+const exportTokens = new Map<string, { path: string; name: string; at: number }>()
+function setExportToken(path: string, name: string): string {
+  for (const [k, v] of exportTokens) if (Date.now() - v.at > 300_000) exportTokens.delete(k)
+  const token = Math.random().toString(36).slice(2) + Date.now().toString(36)
+  exportTokens.set(token, { path, name, at: Date.now() })
+  return token
+}
+
+function specOf(name: string, dshHome: string): DomainSpec | null {
+  const file = join(DOMAINS, name, 'domain.yml')
+  if (!existsSync(file)) return null
+  const { spec } = parseDomain(file)
+  return spec ? { ...spec, dsh_home: dshHome } : null
+}
 
 function json(res: import('node:http').ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -94,6 +110,22 @@ async function instanceStatus(domain: string): Promise<{ domain: string; unit: s
 function systemctl(action: 'start' | 'stop' | 'restart', unit: string): Promise<{ ok: boolean; stderr: string }> {
   return new Promise((resolve) => {
     execFile('systemctl', [action, unit], { timeout: 30_000 }, (err, _out, stderr) => {
+      resolve({ ok: !err, stderr: String(stderr ?? err?.message ?? '').slice(0, 400) })
+    })
+  })
+}
+
+/** systemd-run 冷启动（transient unit 被 GC 后重建）——参数全部来自 registry + domain.yml，固定 argv */
+function systemdRun(args: { unit: string; dshHome: string; dshSource: string; profile: string; envFile: string }): Promise<{ ok: boolean; stderr: string }> {
+  return new Promise((resolve) => {
+    execFile('systemd-run', [
+      `--unit=${args.unit}`,
+      '--property=Restart=on-failure',
+      `--property=WorkingDirectory=${args.dshSource}`,
+      `--property=EnvironmentFile=${args.envFile}`,
+      `--setenv=DSH_HOME=${args.dshHome}`,
+      '/usr/bin/env', 'pnpm', 'dsh', '--profile', args.profile,
+    ], { timeout: 30_000 }, (err, _out, stderr) => {
       resolve({ ok: !err, stderr: String(stderr ?? err?.message ?? '').slice(0, 400) })
     })
   })
@@ -229,7 +261,7 @@ createServer(async (req, res) => {
       const list = await Promise.all(reg.instances.map((i) => instanceStatus(i.domain)))
       return json(res, 200, { data: list, equivalentCommand: 'systemctl is-active <unit> && curl 127.0.0.1:<api>/health' })
     }
-    const mInst = /^\/api\/instance\/([\w-]+)\/(status|ctl|smoke)$/.exec(p)
+    const mInst = /^\/api\/instance\/([\w-]+)\/(status|ctl|smoke|export)$/.exec(p)
     if (mInst) {
       const name = mInst[1]!
       const action = mInst[2]!
@@ -246,16 +278,54 @@ createServer(async (req, res) => {
         if (!['start', 'stop', 'restart'].includes(act)) return json(res, 400, { error: `action 白名单：start/stop/restart（收到 '${act}'）` })
         if (!inst?.systemd_unit) return json(res, 400, { error: `领域 '${name}' 未登记 systemd_unit——先 apply 并人工安装 unit（见 code/scripts/run-ops-trial.sh）` })
         const unit = inst.systemd_unit // unit 只来自 registry，不信请求体
-        const r = await systemctl(act as 'start' | 'stop' | 'restart', unit)
-        const eq = `systemctl ${act} ${unit}`
-        if (!r.ok) {
-          const hint = act === 'start' && /not found|no such/i.test(r.stderr)
-            ? '（瞬态 unit 可能已被 GC——先人工 systemd-run 安装，见 code/scripts/run-ops-trial.sh）' : ''
-          return json(res, 500, { error: `systemctl ${act} 失败：${r.stderr || '未知错误'}${hint}`, equivalentCommand: eq })
+        let eq = `systemctl ${act} ${unit}`
+        let r = await systemctl(act as 'start' | 'stop' | 'restart', unit)
+        // 冷启动回退：瞬态 unit 被 systemd GC 后 systemctl start 报 not found → 直接 systemd-run 重建
+        if (!r.ok && act !== 'stop' && /not found|no such/i.test(r.stderr)) {
+          const cold = await systemdRun({
+            unit, dshHome: inst.dsh_home ?? join(ROOT, '.dsh-home'),
+            dshSource: specOf(name, inst.dsh_home ?? join(ROOT, '.dsh-home'))?.dsh_source ?? ROOT,
+            profile: name, envFile: join(inst.dsh_home ?? join(ROOT, '.dsh-home'), 'ops.env'),
+          })
+          eq = `systemd-run --unit=${unit} … pnpm dsh --profile ${name}`
+          if (!cold.ok) return json(res, 500, { error: `冷启动失败：${cold.stderr || '未知错误'}`, equivalentCommand: eq })
+          r = { ok: true, stderr: '' }
         }
+        if (!r.ok) return json(res, 500, { error: `systemctl ${act} 失败：${r.stderr || '未知错误'}`, equivalentCommand: eq })
         let health: { healthy: boolean; elapsedMs: number } | null = null
         if (act !== 'stop' && inst.ports?.api) health = await waitApiHealth(inst.ports.api)
         return json(res, 200, { ok: true, health, equivalentCommand: eq })
+      }
+      if (action === 'export' && req.method === 'POST') {
+        try {
+          const body = JSON.parse(await readBody(req).catch(() => '{}')) as { secrets?: boolean }
+          const dshHome = inst?.dsh_home ?? join(ROOT, '.dsh-home')
+          const domainYml = join(DOMAINS, name, 'domain.yml')
+          const loadedSpec = specOf(name, dshHome)
+          if (!loadedSpec) return json(res, 400, { error: 'domain.yml 解析失败' })
+          const r = exportDomain(loadedSpec, {
+            dshHome, packsDir: PACKS,
+            domainYmlRaw: existsSync(domainYml) ? readFileSync(domainYml, 'utf8') : undefined,
+            withSecrets: body.secrets !== false,
+          })
+          if (r.errors.length) return json(res, 500, { error: `导出失败：${r.errors.join('；')}` })
+          const token = setExportToken(r.out, `dsh-export-${name}-${new Date().toISOString().slice(0, 10)}.tgz`)
+          return json(res, 200, { data: { token, bytes: r.bytes, notes: r.notes }, equivalentCommand: `dshctl domain export ${name}` })
+        } catch (e) { return json(res, 500, { error: `导出失败: ${String(e).slice(0, 200)}` }) }
+      }
+      if (action === 'export' && req.method === 'GET') {
+        const token = new URL(req.url ?? '/', 'http://x').searchParams.get('token') ?? ''
+        const hit = exportTokens.get(token)
+        exportTokens.delete(token)
+        if (!hit || Date.now() - hit.at > 60_000 || !existsSync(hit.path)) return json(res, 404, { error: '下载令牌无效或已过期（重新导出）' })
+        const buf = readFileSync(hit.path)
+        res.writeHead(200, {
+          'Content-Type': 'application/gzip',
+          'Content-Length': buf.length,
+          'Content-Disposition': `attachment; filename="${hit.name}"`,
+        })
+        res.end(buf)
+        return
       }
       if (action === 'smoke' && req.method === 'POST') {
         const dPath = join(DOMAINS, name, 'domain.yml')

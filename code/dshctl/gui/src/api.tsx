@@ -32,7 +32,7 @@ function normalizeKey(k: string): string {
   return s
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const k = localStorage.getItem(KEY_STORE)
   return k ? { Authorization: `Bearer ${k}` } : {}
 }

@@ -16,6 +16,7 @@ import { loadPacks, renderPackYml } from './packs.ts'
 import { runChecks, updateCheckResult, loadPrevRoster, type CheckReport } from './check.ts'
 import { diffDomain } from './diff.ts'
 import { applyDomain, applySummary, dryRun } from './apply.ts'
+import { exportDomain } from './export.ts'
 import { runSmoke } from './smoke.ts'
 import { runUpgradeCheck, printUpgradeReport } from './upgrade-check.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain } from './plugin.ts'
@@ -56,6 +57,10 @@ const CMDS: CmdHelp[] = [
     examples: ['dshctl domain new sql-transform', 'dshctl domain new sql-transform --from ops'],
   },
   { name: 'domain list', args: '[--json]', desc: 'domains/ 下全部领域清单（与 registry 登记态并排）' },
+  { name: 'domain export', args: '<domain> [--out <path>] [--no-secrets] [--keep-staging]', desc: '导出编排实例为自包含 tgz（生成物 + 密钥 + settings + skills + runner + unit + 导入说明）——解压后 run-<域>.sh 即可独立起停',
+    detail: ['默认含密钥（ops.env/.credentials.yaml，开箱能跑）；--no-secrets 换占位文件',
+      '--keep-staging 保留解包目录（默认打包后清理）', '换机前提：同版本 harness 树 + pnpm install（包内 README 详述）'],
+    examples: ['dshctl domain export ops', 'dshctl domain export ops --out /tmp/ops.tgz --no-secrets'] },
   {
     name: 'adopt', args: '--instance <name> [--home <DSH_HOME>] [--unit <systemd-unit>] [--json]', desc: '反向归档现存实例 → domains/<name>/domain.yml + capability-packs DRAFT（首次）+ registry 登记',
     examples: ['dshctl adopt --instance ops'],
@@ -264,7 +269,27 @@ async function main(): Promise<number> {
       }
       return 0
     }
-    console.error(`未知 domain 子命令: ${sub}（new/list）`)
+    if (sub === 'export') {
+      const inf = pickDomain(process.cwd(), DOMAINS, (positional[1] ?? (typeof flags.domain === 'string' ? flags.domain : '')), listDomainNames(DOMAINS))
+      if ('candidates' in inf) return usageError('domain export', `需要 <domain>（候选: ${inf.candidates.join(', ') || '无'}）`)
+      const loaded = loadSpec('domain export', inf.name)
+      if ('error' in loaded) { console.error(`domain export: ${loaded.error}`); return loaded.code }
+      const r = exportDomain(loaded.spec, {
+        out: flags.out ? String(flags.out) : undefined,
+        withSecrets: !flags['no-secrets'],
+        keepStaging: !!flags['keep-staging'],
+        domainYmlRaw: loaded.raw,
+      })
+      if (r.errors.length) { for (const e of r.errors) console.error(`export 错误: ${e}`); return 2 }
+      if (asJson) console.log(JSON.stringify(r, null, 2))
+      else {
+        console.log(`export ${inf.name}: ${r.out}（${(r.bytes / 1024).toFixed(0)} KB）`)
+        for (const n of r.notes) console.log(`  ${yellow('⚠')} ${n}`)
+        console.log(`导入：tar xzf 到目标 DSH_HOME → profiles/<域> pnpm install → bash run-${inf.name}.sh start`)
+      }
+      return 0
+    }
+    console.error(`未知 domain 子命令: ${sub}（new/list/export）`)
     return 2
   }
 

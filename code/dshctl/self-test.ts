@@ -2,7 +2,7 @@
  * self-test.ts — dshctl v0.1 纯逻辑自测（fixture 驱动，不依赖 live 实例）
  * 运行：bin/dshctl-selftest（自带 tsx，任意目录可用）
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +15,7 @@ import { runChecks, loadPrevRoster, appendCheckHistory, loadCheckHistory, unitAc
 import { diffOpsApp, diffDomain } from './diff.ts'
 import { renderOpsAppPatch, renderProfileManifest, renderProfilePatch, renderUnit, extractPluginConfigBlocks } from './render.ts'
 import { applyDomain } from './apply.ts'
+import { exportDomain } from './export.ts'
 import { buildOverlay, pickPort, parseEnvFile, findApiEntry } from './smoke.ts'
 import { runUpgradeCheck } from './upgrade-check.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins, isPackagePath, type PluginRegistry } from './plugin.ts'
@@ -266,7 +267,7 @@ console.log('\n[7] diff：空与非空两态')
   check('缺项 → diff 非空且列出方向', !d2.empty && d2.lines.some((l) => l.startsWith('-') && l.includes('subagent')))
 }
 
-console.log('\n[8] apply：五件生成物渲染 + settings 跳过')
+console.log('\n[8] apply：六件生成物渲染（含实例 runner）+ settings 跳过')
 {
   const home = makeHome()
   const src = makeDshSource()
@@ -277,7 +278,7 @@ console.log('\n[8] apply：五件生成物渲染 + settings 跳过')
   writeFileSync(join(packsDir, 'core.yml'), renderPackYml({ pack: 'core', disable: { tools: ['ui-goal', 'subagent'] } }))
   writeFileSync(join(packsDir, 'remote-exec.yml'), renderPackYml({ pack: 'remote-exec', disable: {} }))
   const res = applyDomain(spec, packsDir, {})
-  check('落盘五件（ops-app patch+manifest/cordis+patch/preset 内联于 profile patch）', res.written.length === 5, JSON.stringify(res.written))
+  check('落盘六件（ops-app patch+manifest/cordis+patch/preset 内联/runner）', res.written.length === 6, JSON.stringify(res.written))
   check('settings 缺失 → 提示不写入', res.skipped.some((s) => s.includes('settings.yaml') && s.includes('缺失')) && !res.written.some((w) => w.endsWith('settings.yaml')))
   const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'ops', 'package.json'), 'utf8'))
   check('manifest bundles 三层 + file: 依赖', manifest.dsh.profile.bundles.length === 3 && manifest.dependencies['@deepseek-ai/dsh-ops-app'].startsWith('file:'))
@@ -1036,6 +1037,42 @@ console.log('\n[20] v1.7 插件 config 流转：原文通道渲染 / 无通道�
   check('adopt：env 表达式值不回收 + warn 点名',
     a2.spec.plugins?.find((x) => x.id === 'bkn-plugin')?.config === undefined && a2.warns.some((w) => w.includes('R-plugin') && w.includes('I2STREAM_QDRANT_URL')),
     JSON.stringify({ warns: a2.warns, cfg: a2.spec.plugins }))
+}
+
+console.log('\n[21] v1.7 实例自治：runner 生成 / export 打包（含密钥排除）')
+{
+  const home = makeHome()
+  const src = makeDshSource()
+  const packsDir = join(fixture(), 'packs21')
+  mkdirSync(packsDir, { recursive: true })
+  writeFileSync(join(packsDir, 'core.yml'), renderPackYml({ pack: 'core', disable: { tools: ['ui-goal'] } }))
+  writeFileSync(join(packsDir, 'remote-exec.yml'), renderPackYml({ pack: 'remote-exec', disable: {} }))
+  const b = baseSpec(home, src)
+  const spec21: DomainSpec = { ...b, api_server: { ...b.api_server!, plugin_path: '/x/ops-api/index.ts', plugin_id: 'ops-api' } }
+  const res = applyDomain(spec21, packsDir, {})
+  const runnerPath = join(home, 'run-ops.sh')
+  check('apply：落盘实例 runner（可执行位）', existsSync(runnerPath) && (statSync(runnerPath).mode & 0o111) !== 0, runnerPath)
+  const rt = readFileSync(runnerPath, 'utf8')
+  check('runner：变量区由 spec 推导（HOME/UNIT/PROFILE/PORT/ENV_FILE）',
+    rt.includes(`HOME_DIR='${home}'`) && rt.includes("UNIT='dsh-ops-trial.service'") && rt.includes("PROFILE='ops'") && rt.includes('PORT=8643') && rt.includes('ENV_FILE='), '')
+  check('runner：systemd-run 四件套 + health 就绪轮询',
+    rt.includes('systemd-run --unit="$UNIT"') && rt.includes('--property=EnvironmentFile="$ENV_FILE"') && rt.includes('--setenv=DSH_HOME="$HOME_DIR"') && rt.includes('/health'))
+  check('runner：五动作齐备', ['start)', 'stop)', 'restart)', 'status)', 'logs)'].every((a) => rt.includes(a)))
+  check('unit 模板含 EnvironmentFile（密钥行补齐）', renderUnit(spec21).includes(`EnvironmentFile=${home}/ops.env`))
+
+  // export：密钥默认含 / --no-secrets 占位 / 打包内容齐全
+  const r1 = exportDomain(spec21, { dshHome: home, packsDir, domainYmlRaw: 'plugins: []\n' })
+  check('export：产出 tgz + 无错误', existsSync(r1.out) && r1.bytes > 0 && r1.errors.length === 0, JSON.stringify(r1.errors))
+  const list1 = execFileSync('tar', ['tzf', r1.out], { encoding: 'utf8' }).split('\n').filter(Boolean)
+  const has = (x: string) => list1.some((l) => l.replace(/^\.\//, '') === x)
+  check('export：含 profile 三件 + ops-app 两件 + runner + unit + manifest + README',
+    has('profiles/ops/package.json') && has('profiles/ops/cordis.yml') && has('profiles/ops/cordis.patch.yml')
+    && has('bundles/ops-app/cordis.patch.yml') && has('bundles/ops-app/package.json')
+    && has('run-ops.sh') && has('unit/ops.service') && has('export-manifest.json') && has('README.md'), list1.slice(0, 5).join(','))
+  check('export：不含 node_modules/sessions/storages', !list1.some((l) => /node_modules|sessions\/|storages\//.test(l)))
+  const r2 = exportDomain(spec21, { dshHome: home, packsDir, domainYmlRaw: 'plugins: []\n', withSecrets: false, out: join(home, 'exports', 'nosec.tgz') })
+  const envIn = execFileSync('tar', ['xzOf', r2.out, './ops.env'], { encoding: 'utf8' })
+  check('export --no-secrets：密钥文件为占位（含提示语）', envIn.includes('未随包导出') && r2.notes.some((n) => n.includes('ops.env')), envIn.slice(0, 40))
 }
 
 // footer
