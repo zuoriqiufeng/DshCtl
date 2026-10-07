@@ -146,3 +146,11 @@ README 维护约定「可执行代码 ≤1900 行」：本次后 dshctl 实际 ~
 - 2026-09-28 preset 声明式迁移完成（dshctl v1.6）：renderProfilePatch 改发声明行 + agent-preset-registry
   default 覆写；apply 不再拷贝 presets 目录；adopt 读声明行反向导出作者源；新增 R14 preset 引用一致性
   （目录式残留检测器）；8643 已迁移重启，/health 回报 preset=i2stream-ops，对话不再 Unknown agent preset。
+- 2026-10-07 域构造实时组合图交付（dshctl v1.8，commit 见 git log）：新建领域向导 step2 起右侧常驻
+  `CompositionTree`（React Flow 五列：能力包 → 核心槽/被裁成员 → 激活插件+API → 插件库 ghost → 共享依赖）；
+  后端 `POST /api/graph/preview`（推导集中在 `code/dshctl/graph.ts`，GUI/CLI/self-test 同源）：pack 真实裁剪
+  归属（keep_tools 放回后）、core 槽 ok/exempt/empty（向导口径：槽成员须预声明未被裁才算覆盖——比
+  roster-less check 严，未声明前如实标裁空）、无槽核心被裁红线。树上「设为替换」收集 slotDecls → 建域
+  `POST /api/domain` 写 domain.yml 后逐条 `saveSlotMember` 落 core.yml slots（已声明跳过；失败回滚刚写的
+  domain.yml，live 实测坏载体回滚干净）。self-test [22] 11 断言（总 224）+ ci.sh 五环节 ALL GREEN；
+  preview 接口 8780 live 实测（core 裁 43 行归属正确、五槽全 ok、registry 3 条透传）。

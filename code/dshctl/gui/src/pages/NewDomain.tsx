@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Card, Input, Button, Space, Typography, Steps, App as AntApp } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined, LeftOutlined, RightOutlined, PlusOutlined } from '@ant-design/icons'
 import { GRAY, api, PageHead, type Spec, StepBadge } from '../api.tsx'
 import { SecBasic, SecCaps, SecGuard, SecContracts, SecPreset, SecPlugins, SecApi, SecMemory, SecPorts, SecDeps, type SecProps } from './DomainForm.tsx'
+import CompositionTree, { PreviewHint, type PreviewData, type SlotDecl } from './CompositionTree.tsx'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DEFAULT_SPEC = (): Spec => ({
@@ -29,7 +30,30 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
   const [spec, setSpec] = useState<Spec>(DEFAULT_SPEC())
   const [packs, setPacks] = useState<Array<{ pack: string; description: string; draft: boolean }>>([])
   const [creating, setCreating] = useState(false)
+  // 组合图实时预览（step2 起右分栏常驻）：capabilities/plugins 变化 → 400ms 防抖 → /api/graph/preview
+  const [preview, setPreview] = useState<PreviewData | null>(null)
+  const [slotDecls, setSlotDecls] = useState<SlotDecl[]>([])
+  const capsKey = JSON.stringify([spec.capabilities, spec.plugins])
   useEffect(() => { void api('/api/packs').then((r) => setPacks(r.data)) }, [])
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void fetch('/api/graph/preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capabilities: spec.capabilities ?? [], plugins: spec.plugins ?? [] }),
+      }).then((r) => r.json()).then((r) => { if (!r.error) setPreview(r.data) }).catch(() => setPreview(null))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [capsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 插件被移出 spec.plugins → 联动清掉其槽声明（声明必须与实现同在）
+  const prevPluginIds = useRef<string>('')
+  useEffect(() => {
+    const ids = ((spec.plugins ?? []) as Array<{ id: string }>).map((p) => p.id).join(',')
+    if (prevPluginIds.current && prevPluginIds.current !== ids) {
+      const has = new Set(ids ? ids.split(',') : [])
+      setSlotDecls((ds) => ds.filter((d) => has.has(d.member)))
+    }
+    prevPluginIds.current = ids
+  }, [capsKey]) // eslint-disable-line react-hooks/exhaustive-deps
   const nameValid = /^[a-z][a-z0-9-]*$/.test(name)
   const set = (patch: Spec) => setSpec({ ...spec, ...patch })
   const setSub = (key: string, patch: Spec) => setSpec({ ...spec, [key]: { ...(spec[key] ?? {}), ...patch } })
@@ -40,7 +64,7 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
     setCreating(true)
     void fetch('/api/domain', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, spec }),
+      body: JSON.stringify({ name, spec, slotDeclarations: slotDecls }),
     }).then((r) => r.json()).then((r) => {
       setCreating(false)
       if (r.error) { message.error(r.error); return }
@@ -50,6 +74,7 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
   }
 
   const canNext = step === 0 ? nameValid : true
+  const showTree = step >= 2
   return (
     <div style={{ paddingBottom: 80 }}>
       <PageHead title="新建编排领域" desc="向导式五步——只写 domains/<name>/domain.yml，实例骨架生成走 dshctl apply"
@@ -61,7 +86,7 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
             onChange={(s) => { if (s <= step || canNext) setStep(s) }}
             items={STEPS.map((s) => ({ title: s.title, description: <Typography.Text type="secondary" style={{ fontSize: 12 }}>{s.desc}</Typography.Text> }))} />
         </div>
-        {/* 右：当前步内容 */}
+        {/* 中：当前步内容 */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {step === 0 && (
             <Card size="small" style={{ border: '1px solid #e5e9f0', borderRadius: 12, borderLeft: '3px solid #1677ff' }}
@@ -90,6 +115,13 @@ export default function NewDomain({ onCreated, onCancel }: { onCreated: (n: stri
             </div>
           )}
         </div>
+        {/* 右：组合图实时预览（step2 起常驻） */}
+        {showTree && (
+          <div style={{ width: '44%', flexShrink: 0, position: 'sticky', top: 12 }}>
+            <CompositionTree preview={preview} spec={spec} set={set} slotDecls={slotDecls} setSlotDecls={setSlotDecls} height={Math.max(520, Math.round(window.innerHeight * 0.72))} />
+            <PreviewHint preview={preview} />
+          </div>
+        )}
       </div>
       <div style={{
         position: 'sticky', bottom: 0, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(4px)', padding: '12px 24px',

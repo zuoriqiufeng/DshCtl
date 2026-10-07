@@ -20,6 +20,7 @@ import { buildOverlay, pickPort, parseEnvFile, findApiEntry } from './smoke.ts'
 import { runUpgradeCheck } from './upgrade-check.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins, isPackagePath, type PluginRegistry } from './plugin.ts'
 import { loadCoreList, coreViolations, coreIds, slotFindings, saveSlotMember } from './core.ts'
+import { previewComposition, applySlotDeclarations } from './graph.ts'
 import { importFromZip, importFromGit, zipEntryUnsafe, ZIP_MAX_UNCOMPRESSED } from './import.ts'
 import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, snapshotBkn, type PluginManifest } from './unitize.ts'
 import { crossCheckRegistries } from './plugin.ts'
@@ -1075,7 +1076,65 @@ console.log('\n[21] v1.7 实例自治：runner 生成 / export 打包（含密�
   check('export --no-secrets：密钥文件为占位（含提示语）', envIn.includes('未随包导出') && r2.notes.some((n) => n.includes('ops.env')), envIn.slice(0, 40))
 }
 
+console.log('\n[22] v1.8 组合图预览：归属/槽状态推导 + 建域槽声明落盘（graph.ts）')
+{
+  // ① previewComposition：真实归属 + 槽状态 + 红线（fixture：core 裁槽载体 old-impl，script 裁 bash）
+  const packs: CapabilityPack[] = [
+    { pack: 'core', disable: { tools: ['ui-goal', 'old-impl'] } },
+    { pack: 'script', disable: { tools: ['bash'] } },
+  ]
+  const coreOf = (members: string[]): import('./core.ts').CoreList => ({
+    schema: 2,
+    core: [{ id: 'old-impl', slot: 'old-impl', group: '工具面', desc: '载体' }, { id: 'session', group: '会话/存储', desc: '会话' }],
+    slots: { 'old-impl': { desc: '旧实现槽', members } },
+  })
+  const pv = previewComposition(packs, ['core', 'script'], [], coreOf(['old-impl']))
+  check('preview：core 隐含参与 + 真实归属（old-impl 归 core，bash 归 script）',
+    pv.packs[0]?.id === 'core' && pv.packs[0]?.memberIds.includes('old-impl') && pv.packs.find((p) => p.id === 'script')?.memberIds.join(',') === 'bash')
+  const slotPv = pv.slots.find((s) => s.slot === 'old-impl')
+  check('preview：载体被裁 + 槽内无其他成员 → 裁空',
+    slotPv?.status === 'empty' && slotPv.carriers.join(',') === 'old-impl' && slotPv.covering.length === 0, JSON.stringify(slotPv))
+  check('preview：仅插入插件但未声明槽成员 → 仍裁空（豁免来自 slots 声明，声明在建域时落盘）',
+    previewComposition(packs, ['core', 'script'], ['new-a'], coreOf(['old-impl'])).slots.find((s) => s.slot === 'old-impl')?.status === 'empty')
+  const pv2 = previewComposition(packs, ['core', 'script'], [], coreOf(['old-impl', 'twin-a']))
+  check('preview：槽内预声明成员未被裁 → 豁免（roster-less 口径：声明即活跃）',
+    pv2.slots.find((s) => s.slot === 'old-impl')?.status === 'exempt'
+    && pv2.slots.find((s) => s.slot === 'old-impl')?.covering.join(',') === 'twin-a')
+  const pv2b = previewComposition([...packs, { pack: 'extra', disable: { tools: ['twin-a'] } }], ['core', 'script', 'extra'], [], coreOf(['old-impl', 'twin-a']))
+  check('preview：预声明成员被其他包裁掉 → 不算覆盖（回到裁空）',
+    pv2b.slots.find((s) => s.slot === 'old-impl')?.status === 'empty' && pv2b.slots.find((s) => s.slot === 'old-impl')?.covering.length === 0)
+  check('preview：无槽标记核心被裁 → 红线 violations；被裁载体均有槽 → 无红线',
+    previewComposition([{ pack: 'core', disable: { tools: ['session'] } }], ['core'], [], { schema: 2, core: [{ id: 'session' }] }).violations.join(',') === 'session'
+    && pv.violations.length === 0)
+  // ② applySlotDeclarations：建槽落盘 + 已声明跳过 + 非法入参抛错
+  const c22 = join(fixture(), 'core22.yml')
+  writeFileSync(c22, [
+    '# plugin-registry/core.yml —— fixture',
+    'schema: 2',
+    'slots:',
+    '  old-impl:',
+    '    desc: 旧实现槽',
+    '    members: [old-impl]',
+    'core:',
+    '  - id: old-impl',
+    '    slot: old-impl',
+    '    desc: 载体',
+    '',
+  ].join('\n'))
+  const d1 = applySlotDeclarations(c22, [{ carrier: 'old-impl', member: 'new-a' }], loadCoreList(c22))
+  check('applySlotDeclarations：建声明返回槽名 + core.yml members 并入', d1[0]?.slot === 'old-impl' && loadCoreList(c22).slots?.['old-impl']?.members?.join(',') === 'old-impl,new-a')
+  const mid = readFileSync(c22, 'utf8')
+  const d2 = applySlotDeclarations(c22, [{ carrier: 'old-impl', member: 'new-a' }], loadCoreList(c22))
+  check('applySlotDeclarations：已声明跳过（零写入）', d2.length === 0 && readFileSync(c22, 'utf8') === mid)
+  const d3 = applySlotDeclarations(c22, [{ slot: 'old-impl', member: 'new-b' }], loadCoreList(c22))
+  check('applySlotDeclarations：按槽名解析载体形态可用', d3[0]?.carrier === 'old-impl' && loadCoreList(c22).slots?.['old-impl']?.members?.join(',') === 'old-impl,new-a,new-b')
+  const mid3 = readFileSync(c22, 'utf8')
+  let threw = false
+  try { applySlotDeclarations(c22, [{ member: 'x' }], loadCoreList(c22)) } catch { threw = true }
+  check('applySlotDeclarations：缺 carrier/slot 抛错（调用方回滚）', threw && readFileSync(c22, 'utf8') === mid3)
+  check('applySlotDeclarations：写入不动头注释', readFileSync(c22, 'utf8').split('\n')[0]!.includes('fixture'))
+}
+
 // footer
-for (const r of roots) rmSync(r, { recursive: true, force: true })
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)
 process.exit(failures === 0 ? 0 : 1)

@@ -17,6 +17,7 @@ import { runSmoke } from '../smoke.ts'
 import { exportDomain } from '../export.ts'
 import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTrusted, publishDomain, checkDomainPlugins } from '../plugin.ts'
 import { loadCoreList } from '../core.ts'
+import { previewComposition, applySlotDeclarations } from '../graph.ts'
 import { runReplace, type ReplacePaths } from '../replace.ts'
 import { importFromZip, importFromGit, ZIP_MAX_BYTES } from '../import.ts'
 
@@ -182,6 +183,21 @@ createServer(async (req, res) => {
     if (p === '/api/packs') {
       const packs = loadPacks(PACKS).map((x) => ({ pack: x.pack, description: x.description ?? '', draft: !!x.draft }))
       return json(res, 200, { data: packs, equivalentCommand: 'ls code/capability-packs/' })
+    }
+    // ── 域构造实时组合图（向导预览，纯只读）：真实归属 + core 槽状态 + 插件库（推导在 graph.ts，CLI/self-test 同源）──
+    if (p === '/api/graph/preview' && req.method === 'POST') {
+      const body = JSON.parse((await readBody(req)) || '{}') as { capabilities?: unknown; plugins?: unknown }
+      const preview = previewComposition(
+        loadPacks(PACKS),
+        (Array.isArray(body.capabilities) ? body.capabilities : []).map(String),
+        (Array.isArray(body.plugins) ? body.plugins : []).map((x) => String((x as { id?: unknown })?.id ?? '')),
+        loadCoreList(CORE_LIST),
+      )
+      const reg = loadPluginRegistry(PLUGIN_REGISTRY)
+      return json(res, 200, {
+        data: { ...preview, registry: reg.plugins },
+        equivalentCommand: 'cat code/capability-packs/*.yml && cat plugin-registry/core.yml && dshctl plugin list --json',
+      })
     }
     // ── 插件库 ──
     if (p === '/api/plugins') {
@@ -478,8 +494,9 @@ createServer(async (req, res) => {
 
     // ── 清单读写（表单化：JSON spec）──
     if (p === '/api/domain' && req.method === 'POST') {
-      // 新建领域：只写 domain.yml（不自动 apply、不自动登记 registry——安全门保持 CLI 侧）
-      const body = JSON.parse(await readBody(req)) as { name?: string; spec?: unknown }
+      // 新建领域：只写 domain.yml（不自动 apply、不自动登记 registry——安全门保持 CLI 侧）；
+      // slotDeclarations（组合图「设为替换」）：domain.yml 落盘后逐条写 core.yml slots，失败回滚 domain.yml
+      const body = JSON.parse(await readBody(req)) as { name?: string; spec?: unknown; slotDeclarations?: Array<{ carrier?: string; slot?: string; member?: string }> }
       const name = body.name ?? ''
       if (!DOMAIN_RE.test(name)) return json(res, 400, { error: `非法 domain 名 '${name}'（须匹配 ${DOMAIN_RE}）` })
       const file = join(DOMAINS, name, 'domain.yml')
@@ -487,10 +504,22 @@ createServer(async (req, res) => {
       const spec = { schema: 1, domain: name, ...pruneSpec(body.spec) } as DomainSpec
       const r = validateAndWrite(file, spec)
       if (!r.ok) return json(res, 400, { error: `校验失败: ${r.errors.join('; ')}`, errors: r.errors })
+      const declared: Array<{ slot: string; carrier: string; member: string }> = []
+      if (Array.isArray(body.slotDeclarations) && body.slotDeclarations.length) {
+        try {
+          declared.push(...applySlotDeclarations(CORE_LIST, body.slotDeclarations, loadCoreList(CORE_LIST)))
+        } catch (e) {
+          rmSync(file, { force: true }) // 回滚刚写的 domain.yml（保持两清单一致）
+          try { if (!readdirSync(dirname(file)).length) rmSync(dirname(file), { force: true }) } catch { /* 目录清理失败不遮蔽主错误 */ }
+          return json(res, 500, { error: `槽声明写入 core.yml 失败，已回滚 domain.yml：${String(e).slice(0, 200)}` })
+        }
+      }
       return json(res, 200, {
         ok: true,
+        declared: declared.length,
+        data: { declared },
         equivalentCommand: `dshctl check ${name} && dshctl apply ${name} --dry-run`,
-        hint: `已创建 domains/${name}/domain.yml。下一步：check 通过后 dshctl apply ${name} --dry-run → --yes 造实例骨架。`,
+        hint: `已创建 domains/${name}/domain.yml${declared.length ? `，槽成员已声明 ${declared.length} 项（core.yml slots）` : ''}。下一步：check 通过后 dshctl apply ${name} --dry-run → --yes 造实例骨架。`,
       })
     }
     const mDom = /^\/api\/domain\/([\w-]+)$/.exec(p)

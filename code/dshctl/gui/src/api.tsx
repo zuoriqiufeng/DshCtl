@@ -6,7 +6,7 @@ import type { ReactNode, CSSProperties } from 'react'
 export type Spec = Record<string, any>
 
 /** 版本号唯一来源（Sider Tag / Footer 同源引用） */
-export const VERSION = 'v1.7'
+export const VERSION = 'v1.8'
 
 /** 阴影两档（与 main.tsx seed token 同源；卡零影——hairline 承重，hover 叠 ring） */
 export const SHADOW = { card: 'none', hover: '0 0 0 1px rgba(0,0,0,.06), 0 1px 2px rgba(16,24,40,.06)' }

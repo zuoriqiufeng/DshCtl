@@ -452,7 +452,7 @@ dshctl-gui --host 0.0.0.0            # 或 --host 192.168.34.66 绑定指定地�
 | 领域管理 · diff | 差异清单/一致提示 + notes | `dshctl diff <domain>` |
 | 领域管理 · 实例控制 | 概览页签：启动/停止/重启（**瞬态 unit 被 GC 时自动 systemd-run 冷启动**）+ 冒烟测试 + **导出实例**（浏览器下载自包含 tgz） | `systemctl <action> <unit>` / `dshctl domain export <域>` |
 | 领域管理 · 清单编辑 | **表单化模块编辑**（基本信息/能力包/护栏/契约/preset/plugins/api_server/memory/端口与托管/shared_deps 分区卡片），保存即 schema 校验 + 原子写（失败拒绝、空段自动省略）；原始 YAML 只读折叠可查 | 编辑文件 + `dshctl check` |
-| 新建领域（领域选择条按钮） | 同款表单 + domain 名正则校验；创建只写 domain.yml，成功自动切到新域并提示 `check → apply --dry-run → --yes` | `dshctl apply <name> --dry-run` |
+| 新建领域（领域选择条按钮） | 同款表单 + domain 名正则校验；**step「能力与护栏」起右侧常驻组合图实时预览**（勾选能力包/加删插件 → 400ms 防抖重算：能力包真实裁剪归属、core 槽 覆盖/豁免/裁空、插件库 ghost 可「+ 加入」、裁空槽上「设为替换」选库成员——建域时自动写入 core.yml slots 声明，R11 立即豁免；核心必须件被裁/归属冲突在树顶徽标预警）；创建只写 domain.yml（+槽声明写 core.yml，失败回滚），成功自动切到新域并提示 `check → apply --dry-run → --yes` | `dshctl apply <name> --dry-run` |
 | 升级对账 | 全领域对账表 + verdict 三态徽标 | `dshctl upgrade-check` |
 | **插件库** | core 必须件清单展示（蓝 Tag）+ extension 表（收编/移除/标记信任）+ 路径收编表单 + 领域 publish 入库 + zip 上传（base64，50MB 上限）+ git 导入（标注网络前提）；领域表单⑥段改为**库选择器**（多选自动写 id+path，未入库标红提示） | `dshctl plugin list/add/remove/trust/publish/import/import-git` |
 | 插件库 · 核心功能「替换」 | **主从结构（先选择后替换），等高双栏 580 内滚**：左清单点选（搜索 + sticky 分组 + **行内只留 id、描述悬停披露** + 蓝底左竖条选中，无行内按钮）→ 右侧三层详情（**渐变磁贴头区带** + 内容节[豁免语义收 ⓘ] + **底部动作条**「替换…」唯一入口）→ 600 三阶段 Drawer（对比卡 + 表单 + **自动预演**[verdict / 步骤时间线 / **行级 diff** / 等价命令] + 执行结果[槽豁免徽标 / 回退指引] + 常驻操作条）；同源引擎，check 不过自动回滚 | `dshctl replace <旧> --with <新> … --yes` |
@@ -469,7 +469,7 @@ bash /hdd/demo/public/dsh-info/code/dshctl/ci.sh
 
 | # | 环节 | 说明 |
 |---|---|---|
-| 1 | dshctl self-test | 150 断言（自带 tsx） |
+| 1 | dshctl self-test | 224 断言（自带 tsx） |
 | 2 | dsh-plugin self-test | 136 断言（沿用 harness 惯例） |
 | 3 | ops-api self-test | 存量回归 |
 | 4 | upgrade-check | 全领域上游对账（verdict 非 pass 则失败） |
@@ -546,6 +546,7 @@ dshctl check ops --ci
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-10-07 | v1.8 | **域构造实时组合图**：新建领域向导 step2 起右侧常驻预览（React Flow 五列：能力包→核心槽/被裁成员→激活插件+API→插件库 ghost→共享依赖）；`POST /api/graph/preview`（`graph.ts` 纯推导：pack 真实裁剪归属、core 槽 ok/exempt/empty、核心必须件红线）；树上「设为替换」收集槽声明 → 建域时写 core.yml slots（R11 立即豁免，失败回滚 domain.yml）；self-test [22] 11 断言（exec-plan/ux-plan 有补记） |
 | 2026-09-17 | v1.5 | **GUI v5 降噪 + 手册**：全站 Alert 清零（ⓘ 悬浮+toast+StatusRow）；等价命令集中 Popover；插件卡瘦身+Drawer 详情；路径末段名+tooltip；Upgrade verdict 轻横条；新增 GUI「使用手册」页 + doc/dshctl-user-manual.md 完整用户手册（exec-plan 有补记） |
 | 2026-09-17 | v1.4 | **编排可视化 v4**：领域详情独立页 + 拖拽编排画布（React Flow 四层推导/依赖连线/插件排序写回 plugins[]/depends_on 声明虚线）+ 插件目录与领域插件卡片墙（exec-plan 有补记） |
 | 2026-09-17 | v1.3 | **领域详情 v3**：概览页签（运行状态 tri-state + 真控制起停[systemctl，unit 只取自 registry]+冒烟测试+领域信息+插件库对齐卡）；左栏运行 chip；编辑页分区锚点导航；/api/instance(s) 生命周期路由（exec-plan 有补记与 live 验收证据） |
