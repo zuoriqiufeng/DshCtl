@@ -47,7 +47,11 @@ journalctl -u dsh-ops-trial -f          # 实时日志（GUI token 也在日志�
 
 ## 升级跟随（harness 更新时）
 
-1. `cd /hdd/demo/public/dsh-info/deepseek-harness && git pull && pnpm install --store-dir /hdd/demo/public/dsh-info/.pnpm-store && pnpm build && pnpm build:web`
+1. `cd /hdd/demo/public/dsh-info/deepseek-harness && git pull && pnpm install && pnpm build`
+   - **不要传 `--store-dir` / `--registry`**（2026-10-08 沉淀）：pnpm 会把它们记进 `node_modules/.modules.yaml`，与"裸 pnpm"解析出的默认值不一致时，`pnpm dsh` 内部派生的依赖检查会判定需重装并因无 TTY 中止（`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`），upgrade-check 随之 DEGRADED/exit 2。若确需固定 store，必须用 .npmrc 之类让裸调用也解析到同一 store。
+   - **清理上游已删包的残留目录**（2026-10-08 沉淀）：`git pull` 不会删除"只含 node_modules 的空壳"目录，而 tsdown 的 workspace glob（`packages/*/*`）会把它当成员 → 报 `[@deepseek-ai/dsh-root] Cannot find entry`。检查方法：`for d in vendor/* packages/*/* apps/*; do [ -f "$d/package.json" ] || echo "STALE: $d"; done`，命中即删/移后重建。
+   - 若卡在 `xlsx@https://cdn.sheetjs.com/...`（该包不在 npm 与各镜像，CDN 实测 ~1.4 KB/s）：可临时用本地 HTTPS 端点兑付（断点续传下全 → `/etc/hosts` 指 127.0.0.1 → `NODE_EXTRA_CA_CERTS` 信任自签证书），用完立即还原；详见 orchestration-plan §8 踩坑③。
+   - `pnpm build` 已含 `build:web`（`scripts/build.ts` 依次跑 native-system → lib → web），无需再单跑 `pnpm build:web`。
 2. ~~dump-config 存档 diff（人工肉眼对账）~~ **已自动化：`dshctl upgrade-check`**（2026-09-16，v0.3）——
    `cd /hdd/demo/public/dsh-info/deepseek-harness && node --import tsx/esm /hdd/demo/public/dsh-info/code/dshctl/dshctl.ts upgrade-check --refresh`
    全领域 R2/R3 对账：消失 id（error，必须跟进清单）/ 新增行（warn，人工评估裁剪）；verdict=pass 才进入第 3 步；

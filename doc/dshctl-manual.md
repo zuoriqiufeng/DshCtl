@@ -486,7 +486,7 @@ dshctl check ops --ci
 
 ### 9.2 harness 升级跟随
 ```sh
-cd deepseek-harness && git pull && pnpm install --store-dir .../pnpm-store && pnpm build && pnpm build:web
+cd deepseek-harness && git pull && pnpm install && pnpm build   # 勿传 --store-dir/--registry（见 ops-trial-operations-manual 升级第 1 步）
 dshctl upgrade-check --refresh          # verdict PASS 才继续
 systemctl restart dsh-ops-trial
 bash code/scripts/bench-4q.sh http://127.0.0.1:8643 i2stream-ops $OPS_API_KEY   # 回归
