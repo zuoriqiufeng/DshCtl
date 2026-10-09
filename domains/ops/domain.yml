@@ -35,11 +35,15 @@ plugins:
     path: /hdd/demo/public/dsh-info/code/intent-router/index.ts
     config:
       # inject：把高置信意图注入本步提示（v1 唯一的行为改动）。
-      # 观测数据见 .dsh-home/logs/intent-router.jsonl；若误识别率上升，退回 observe。
+      # 观测数据见 .dsh-home/logs/intent-router/intent-router_<日期>.log；若误识别率上升，退回 observe。
       mode: inject
       taxonomyPath: /hdd/demo/public/dsh-info/code/intent-router/taxonomy.generated.json
       # useVector 默认 false：实测无可用工作点（详见插件 README「向量路径为何默认关闭」）
       useVector: false
+      # 文件日志：<logDir>/<logStem>_YYYY-MM-DD.log，按大小（.1/.2/.3）与日期双维轮转。
+      # 可调：logDir / logStem / logLevel(off|error|warn|info|debug) / logMaxBytes /
+      #       logBackups / logRetentionDays(0=永久) / logTextMaxChars(0=不截断)
+      logLevel: info
 api_server:
   port: 8643
   api_key_env: OPS_API_KEY

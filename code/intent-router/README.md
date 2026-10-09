@@ -33,6 +33,7 @@ intent-router/
 ├── taxonomy.ts              意图体系数据模型：合并 / 校验 / 语料构造
 ├── embed.ts                 层 2c 向量提供者（BGE sidecar，失败即降级）
 ├── frontmatter.ts           SKILL.md frontmatter 容错解析（生成器复用）
+├── logfile.ts               文件日志：日期/大小双维轮转 + 级别门 + 易读格式
 ├── inject.ts                注入文案渲染（含免责声明）
 ├── overrides.ts             **唯一允许手改的意图数据**：补原型/关键词、禁用条目
 ├── taxonomy.generated.json  生成物（禁手改；重跑 gen-intent-taxonomy.ts）
@@ -52,6 +53,7 @@ intent-router/
 | `code/dsh-plugin/bm25.ts` | 分词 + BM25 + RRF（单点复用，不复制实现） | —（源码路径依赖） | 启动期 import 失败 → 插件不生效 |
 | `code/dsh-plugin/constants.ts` | 口语别名表（症状/错误码） | —（同上） | 同上 |
 | **BGE embedding sidecar** | 仅层 2c（默认关闭） | `embedUrl`（env `I2STREAM_EMBED_URL`） | 超时/拒绝 → 自动退化为 BM25-only，不影响识别 |
+| **日志目录** | 排查用文件日志（按大小/日期双维轮转） | `logDir` / `logStem` | 目录建不了或写失败 → 静默 + **一次性报 stderr**（journalctl 可见），会话不受影响 |
 
 **注意**：本插件不依赖 Qdrant，也不依赖任何大模型接口——`useVector=false`（默认）时它是纯本地计算。
 
@@ -69,7 +71,13 @@ intent-router/
 | `useVector` | `false` | 是否启用层 2c（见 §5） |
 | `embedUrl` | `http://127.0.0.1:8096/embed` | sidecar 地址 |
 | `embedTimeoutMs` | `800` | 单条查询超时（原型批量另有 30s 预算，在启动后台预热） |
-| `logPath` | `$DSH_HOME/logs/intent-router.jsonl` | 观测日志 |
+| `logDir` | `$DSH_HOME/logs/intent-router` | 日志输出目录（专用子目录，避免和 harness 的 `startup-*.log` 混淆） |
+| `logStem` | `intent-router` | 文件名词干 → `<stem>_YYYY-MM-DD.log` |
+| `logLevel` | `info` | `off` / `error` / `warn` / `info`（每次决策一行）/ `debug`（附排名明细与工具对照） |
+| `logMaxBytes` | `524288`（512KB） | 单文件上限，超出切 `.1/.2/.3`（对齐共享 BKN 的 gap 日志） |
+| `logBackups` | `3` | 同日保留分片数，最旧先删（对齐 BKN `backups`） |
+| `logRetentionDays` | `0` | `>0` 时按文件名日期清理旧日文件及其分片；`0`=永久保留（对齐 BKN） |
+| `logTextMaxChars` | `200` | info 级原文截断长度；`0`=不截断（debug 级恒记全文） |
 | `injectTemplate` | 内置模板 | 支持 `{label} {target} {slots} {advice} {tier} {evidence}` |
 | `errorToolTarget` | `diagnose_error` | 错误码内建规则的落点工具 |
 
@@ -110,8 +118,12 @@ bash /hdd/demo/public/dsh-info/.dsh-home/run-ops.sh restart   # 改插件源码�
 ## 7. 观测与评测
 
 ```sh
-# 观测日志（每步一行 JSON：识别结果 / 层级 / 排名 / 耗时 / 是否注入 / 本回合主模型实际调用了什么工具）
-tail -f /hdd/demo/public/dsh-info/.dsh-home/logs/intent-router.jsonl
+# 文件日志（人在看的排查日志：文件名词干带日期，按大小与日期双维轮转）
+tail -f /hdd/demo/public/dsh-info/.dsh-home/logs/intent-router/intent-router_$(date +%F).log
+ls -t /hdd/demo/public/dsh-info/.dsh-home/logs/intent-router/ | head        # 跨日/分片时按时间找文件
+# 只看采纳的行 / 只抽意图字段（ASCII key=value，便于 grep/awk）
+grep 'accepted=yes' /hdd/demo/public/dsh-info/.dsh-home/logs/intent-router/*.log | tail
+awk '{for(i=1;i<=NF;i++) if ($i ~ /^intent=/) print $i}' /hdd/demo/public/dsh-info/.dsh-home/logs/intent-router/*.log | sort | uniq -c | sort -rn
 
 # 标注集回归（不达标退出码 1）；--sweep 扫门限；--with-vector 量化向量贡献
 node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/eval-intent.ts
@@ -125,3 +137,33 @@ node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/gen-intent-taxonomy
 
 **从 observe 切 inject 的判据**：观测日志里 `accepted=true` 的样本抽样人工核对无误识别；
 `eval-intent.ts` 保持「零误采纳 + 采纳率 ≥85%」。出现误识别 → 退回 `observe`，按 `overrides.ts` 补原型/关键词或收紧门限。
+
+### 7.1 日志格式（一行一条，本地时间带偏移；级别左对齐便于扫读）
+
+```
+2026-10-09 10:19:06.945 +08:00 INFO  [intent-router] 意图体系已加载：22 条（跳过 0），mode=inject
+2026-10-09 10:19:57.054 +08:00 INFO  decision turn=1 sid=session-85fff276-… mode=inject accepted=yes reason=accepted intent=diagnose_error kind=tool tier=rule rule=exact:diagnose_error slots=error_code:ORA-00942 ms=0 inject=yes text="ORA-00942 是什么原因？"
+2026-10-09 10:20:39.573 +08:00 INFO  decision turn=1 sid=… mode=inject accepted=no reason=narrow-margin ms=1 text="帮我把这句话翻译成英文"
+2026-10-09 10:20:39.191 +08:00 INFO  decision turn=1 sid=… accepted=yes … tier=algo rule=bm25 ms=2 inject=yes rank=check_action_risk:67.27,resolve_operation:35.02,… text="什么情况下禁止删除同步规则？"
+```
+
+| 字段 | 含义 |
+|---|---|
+| `decision` | 决策行标记（其余行是插件自身日志，如启动摘要、降级告警、异常） |
+| `turn` / `sid` | 回合号 / 会话 id（排查时按 sid 串起一个会话的全部行） |
+| `accepted` / `reason` | 是否采纳 / 未采纳原因（`low-score` `narrow-margin` `low-cos` `narrow-cos-margin` `vector-uncorroborated` `no-overlap` `already-injected`） |
+| `intent` / `kind` / `tier` | 意图 id / 落点类型（tool·skill·none）/ 命中层级（`rule` 正则、`alias` 别名、`algo` BM25、`vector` 向量） |
+| `rule` | 命中的规则或证据（`exact:diagnose_error`、`alias:同步卡住`、`bm25`、`vector`） |
+| `slots` | 抽到的槽位（如 `error_code:ORA-00942`） |
+| `ms` | 本地识别耗时 |
+| `inject` | 是否真的注入了提示（去重跳过时为 `no`） |
+| `rank` / `actual` | **仅 debug 级**：BM25/向量前三名、本回合主模型实际调用的工具 |
+| `text` | 用户原文（info 级按 `logTextMaxChars` 截断；debug 级全文；换行/引号已转义，保证一条日志一行） |
+
+### 7.2 轮转与保留
+
+- **按日期**：文件名带日期（`<stem>_YYYY-MM-DD.log`），跨日自动开新文件，无需重启。
+- **按大小**：单文件超 `logMaxBytes` 立即切成 `.1`，原 `.1→.2`、`.2→.3`，最旧先删，保留 `logBackups` 个。
+- **清理**：`logRetentionDays > 0` 时，按文件名日期删除超期日文件**及其分片**（跨日首次写入时清一次）；`0`=永久保留。
+- 语义与共享 BKN 的 `plugin/log_rotate.py` 1:1（`day_file_path` / `rotate_day_file` / `_prune_old_days` / `iter_data_files`），两处刻意偏差记在 `logfile.ts` 头注释里。
+- 插件**自身**的 `info/warn/error` 也写进同一个文件——ops 实例没有 console exporter，这些行原本只进内存 ring buffer、重启即丢。

@@ -24,8 +24,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { ERROR_ALIASES, SYMPTOM_ALIASES } from '../dsh-plugin/constants.ts'
 import { classify, buildScorer, type EngineDeps, type VectorProvider } from './engine.ts'
 import { createEmbedProvider } from './embed.ts'
@@ -33,6 +33,7 @@ import { lastUserText } from './extract.ts'
 import { renderInjectionText } from './inject.ts'
 import { buildAliasIndex, DEFAULT_GATE, type GateConfig } from './layer2.ts'
 import { mergeTaxonomy, type IntentDef } from './taxonomy.ts'
+import { createFileLog, formatArgs, normalizeLevel, type DecisionEntry, type FileLog, type LogLevel } from './logfile.ts'
 import { OVERRIDES } from './overrides.ts'
 
 /** 声明本插件注入的用户消息来源（MessageSourceMap 是合并扩展类型，各生产者声明自己的 kind）。 */
@@ -73,8 +74,20 @@ export interface Config {
   embedUrl?: string
   /** 单次 embed 超时（ms）。 */
   embedTimeoutMs?: number
-  /** 观测日志路径；缺省 $DSH_HOME/logs/intent-router.jsonl。 */
-  logPath?: string
+  /** 日志输出目录；缺省 $DSH_HOME/logs/intent-router（专用子目录，避免和 harness 的 startup-*.log 混在一起）。 */
+  logDir?: string
+  /** 文件名词干 → `<stem>_YYYY-MM-DD.log`；缺省 intent-router。 */
+  logStem?: string
+  /** 级别门：off | error | warn | info（默认，每次决策一行）| debug（附排名明细与工具对照）。 */
+  logLevel?: string
+  /** 单文件上限（字节），超出切 `.1/.2/...`；缺省 524288（512KB，对齐共享 BKN 的 gap 日志）。 */
+  logMaxBytes?: number
+  /** 同日保留的分片数（最旧先删）；缺省 3（对齐 BKN backups: 3）。 */
+  logBackups?: number
+  /** >0 时按文件名日期清理旧日文件及其分片；缺省 0 = 永久保留（对齐 BKN retention_days: 0）。 */
+  logRetentionDays?: number
+  /** info 级原文截断长度；缺省 200，0 = 不截断（debug 级恒记全文）。 */
+  logTextMaxChars?: number
   /** 注入文案模板（支持 {label} {target} {slots} {advice} {tier} {evidence}）。 */
   injectTemplate?: string
   /** 错误码内建规则落到的工具名（默认 diagnose_error）。 */
@@ -92,7 +105,13 @@ export const Config: Schema<Config> = Schema.object({
   useVector: Schema.boolean().default(false).description('是否启用向量路径（默认关，见 Config 注释）'),
   embedUrl: Schema.string().default('http://127.0.0.1:8096/embed').description('embed sidecar 地址'),
   embedTimeoutMs: Schema.natural().default(800).description('单次 embed 超时（ms）'),
-  logPath: Schema.string().description('观测日志路径'),
+  logDir: Schema.string().description('日志输出目录（缺省 $DSH_HOME/logs/intent-router）'),
+  logStem: Schema.string().default('intent-router').description('日志文件名词干'),
+  logLevel: Schema.string().default('info').description('off | error | warn | info | debug'),
+  logMaxBytes: Schema.natural().default(512 * 1024).description('单文件上限（字节），超出切分片'),
+  logBackups: Schema.natural().default(3).description('同日保留分片数（最旧先删）'),
+  logRetentionDays: Schema.natural().default(0).description('旧日文件保留天数，0=永久'),
+  logTextMaxChars: Schema.natural().default(200).description('info 级原文截断长度，0=不截断'),
   injectTemplate: Schema.string().description('注入文案模板'),
   errorToolTarget: Schema.string().default('diagnose_error').description('错误码规则的落点工具'),
 })
@@ -104,7 +123,13 @@ interface Resolved {
   useVector: boolean
   embedUrl: string
   embedTimeoutMs: number
-  logPath: string
+  logDir: string
+  logStem: string
+  logLevel: LogLevel
+  logMaxBytes: number
+  logBackups: number
+  logRetentionDays: number
+  logTextMaxChars: number
   injectTemplate?: string
   errorToolTarget: string
 }
@@ -126,7 +151,13 @@ function resolveConfig(config: Config | undefined): Resolved {
     useVector: config?.useVector ?? false,
     embedUrl: config?.embedUrl?.trim() || 'http://127.0.0.1:8096/embed',
     embedTimeoutMs: config?.embedTimeoutMs ?? 800,
-    logPath: config?.logPath?.trim() || join(dshHome, 'logs', 'intent-router.jsonl'),
+    logDir: config?.logDir?.trim() || join(dshHome, 'logs', 'intent-router'),
+    logStem: config?.logStem?.trim() || 'intent-router',
+    logLevel: normalizeLevel(config?.logLevel, 'info'),
+    logMaxBytes: config?.logMaxBytes ?? 512 * 1024,
+    logBackups: config?.logBackups ?? 3,
+    logRetentionDays: config?.logRetentionDays ?? 0,
+    logTextMaxChars: config?.logTextMaxChars ?? 200,
     ...(config?.injectTemplate ? { injectTemplate: config.injectTemplate } : {}),
     errorToolTarget: config?.errorToolTarget?.trim() || 'diagnose_error',
   }
@@ -138,29 +169,60 @@ function loadIntents(path: string, knownSkills: ReadonlySet<string>): { intents:
   return { intents: merged.intents, skipped: merged.skipped.length }
 }
 
-/** 观测日志：一行一条 JSON（append 模式；失败静默——日志坏了不该影响会话）。 */
-function makeObserver(path: string): (row: Record<string, unknown>) => void {
-  let ready = false
-  return (row) => {
-    try {
-      if (!ready) {
-        mkdirSync(dirname(path), { recursive: true })
-        ready = true
+/** 插件日志：harness logger 与文件日志合成一条（同一条消息两边都到）。 */
+type PluginLog = Pick<FileLog, 'error' | 'warn' | 'info'>
+
+/**
+ * 包装 harness logger，使每条消息同时落文件日志。
+ * 为什么必须包：ops 实例没有 console exporter —— 插件自身的 warn/error 原本只进 cordis 的内存
+ * ring buffer（重启即丢、journalctl 也看不到），而排查时最需要的正是这些行。
+ * @param harness - `ctx.logger(name)` 返回的 logger（printf 风格）。
+ * @param file - 文件日志。
+ */
+function dualLogger(
+  harness: { error(...args: unknown[]): void; warn(...args: unknown[]): void; info(...args: unknown[]): void },
+  file: FileLog,
+): PluginLog {
+  const both = (level: 'error' | 'warn' | 'info') =>
+    (format: unknown, ...args: unknown[]): void => {
+      const text = formatArgs(format, args)
+      try {
+        harness[level](format, ...args)
+      } catch {
+        /* harness 侧失败不影响落盘 */
       }
-      appendFileSync(path, `${JSON.stringify(row)}\n`)
-    } catch {
-      /* 观测失败静默（降级铁律） */
+      file[level](text)
     }
-  }
+  return { error: both('error'), warn: both('warn'), info: both('info') }
 }
 
 export function apply(ctx: Context, config?: Config): void {
   const cfg = resolveConfig(config)
-  const log = ctx.logger('intent-router')
+  const harness = ctx.logger('intent-router')
   if (cfg.mode === 'off') {
-    log.info('[intent-router] disabled by config (mode=off)')
+    harness.info('[intent-router] disabled by config (mode=off)')
     return
   }
+
+  // 文件日志先建：此后所有插件日志（含"意图体系加载失败"这类致命信息）都有落盘去向。
+  // 写失败一次性报 stderr —— 日志文件坏了时，journalctl 是唯一还看得见的通道。
+  const file = createFileLog({
+    dir: cfg.logDir,
+    stem: cfg.logStem,
+    level: cfg.logLevel,
+    maxBytes: cfg.logMaxBytes,
+    backups: cfg.logBackups,
+    retentionDays: cfg.logRetentionDays,
+    textMaxChars: cfg.logTextMaxChars,
+    onError: (message) => {
+      try {
+        process.stderr.write(`${message}\n`)
+      } catch {
+        /* stderr 也写不进去就只能放弃 */
+      }
+    },
+  })
+  const log = dualLogger(harness, file)
 
   let intents: IntentDef[]
   try {
@@ -169,16 +231,15 @@ export function apply(ctx: Context, config?: Config): void {
     log.info('[intent-router] 意图体系已加载：%d 条（跳过 %d），mode=%s',
       intents.length, loaded.skipped, cfg.mode)
   } catch (error) {
-    log.warn('[intent-router] 意图体系加载失败，插件不生效：%s', String(error))
+    log.error('[intent-router] 意图体系加载失败，插件不生效：%s', String(error))
     return
   }
   if (intents.length === 0) {
-    log.warn('[intent-router] 意图体系为空，插件不生效（可重跑 gen-intent-taxonomy.ts）')
+    log.error('[intent-router] 意图体系为空，插件不生效（可重跑 gen-intent-taxonomy.ts）')
     return
   }
 
   const aliasIndex = buildAliasIndex(intents, { symptom: SYMPTOM_ALIASES, error: ERROR_ALIASES })
-  const observe = makeObserver(cfg.logPath)
   const deps: EngineDeps = {
     intents,
     aliasIndex,
@@ -230,12 +291,11 @@ export function apply(ctx: Context, config?: Config): void {
       signal.throwIfAborted()
 
       const agentId = String((agent as { id?: unknown }).id ?? '')
-      const row: Record<string, unknown> = {
-        ts: new Date().toISOString(),
-        sid: agentId,
+      const entry: DecisionEntry = {
         turn,
+        sid: agentId,
         mode: cfg.mode,
-        text: text.length > 200 ? `${text.slice(0, 200)}…` : text,
+        text,
         accepted: result.accepted,
         reason: result.reason,
         intent: result.intent?.id ?? '',
@@ -245,22 +305,26 @@ export function apply(ctx: Context, config?: Config): void {
         rule: result.hit?.rule ?? '',
         slots: result.hit?.slots ?? {},
         ms: result.ms,
-        top: result.ranking.slice(0, 3).map((r) => ({ id: r.intentId, bm25: Number(r.bm25.toFixed(2)), cos: r.cos })),
+        rank: result.ranking.slice(0, 3).map((r) => ({
+          id: r.intentId,
+          bm25: Number(r.bm25.toFixed(2)),
+          ...(r.cos === undefined ? {} : { cos: r.cos }),
+        })),
       }
 
       if (!result.accepted || !result.intent || !result.intent.injectable) {
-        observe(row)
+        file.decision(entry)
         return decision
       }
       if (cfg.mode !== 'inject') {
-        observe(row)
+        file.decision(entry)
         return decision
       }
 
       // 去重：同一回合只注入一次
       const seenTurn = lastInjected.get(agentId)
       if (seenTurn === turn) {
-        observe({ ...row, injected: false, reason: 'already-injected' })
+        file.decision({ ...entry, injected: false, reason: 'already-injected' })
         return decision
       }
 
@@ -270,7 +334,7 @@ export function apply(ctx: Context, config?: Config): void {
         source: { kind: 'intent-router', intent: result.intent.id, tier: result.tier ?? '', rule: result.hit?.rule ?? '' },
       })
       lastInjected.set(agentId, turn)
-      observe({ ...row, injected: true, actualTools: actualTools.get(agentId) ?? [] })
+      file.decision({ ...entry, injected: true, actualTools: actualTools.get(agentId) ?? [] })
       actualTools.delete(agentId)
       return { ...decision, messages: [...decision.messages, injection] }
     } catch (error) {
@@ -280,8 +344,8 @@ export function apply(ctx: Context, config?: Config): void {
     }
   })
 
-  log.info('[intent-router] 已挂载 agent/pre-step（mode=%s，意图 %d 条，向量=%s）',
-    cfg.mode, intents.length, cfg.useVector ? 'on' : 'off')
+  log.info('[intent-router] 已挂载 agent/pre-step（mode=%s，意图 %d 条，向量=%s，日志级别=%s，日志文件=%s）',
+    cfg.mode, intents.length, cfg.useVector ? 'on' : 'off', cfg.logLevel, file.currentPath())
 }
 
 export type { VectorProvider }

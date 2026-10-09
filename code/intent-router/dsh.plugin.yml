@@ -15,11 +15,23 @@ config:
   minCosMargin: 0.06
   vectorCorroborateTopK: 2
   useVector: false   # 实测无可用工作点，详见 README「向量路径为何默认关闭」
+  # 文件日志：目录 / 词干 / 级别 / 大小与日期双维轮转 / 清理与截断
+  # 文件名带日期：<logDir>/<logStem>_YYYY-MM-DD.log；同日超限切 .1/.2/.3（最旧先删）
+  logDir: ''                 # 缺省 $DSH_HOME/logs/intent-router（专用子目录）
+  logStem: intent-router
+  logLevel: info             # off | error | warn | info | debug
+  logMaxBytes: 524288        # 512KB，对齐共享 BKN 的 gap 日志
+  logBackups: 3              # 同日分片数，对齐 BKN backups
+  logRetentionDays: 0        # 0=永久保留，对齐 BKN retention_days
+  logTextMaxChars: 200       # info 级原文截断；0=不截断（debug 级恒全文）
 provides:
   - 分层意图识别（正则/精确 → 别名+BM25+向量 → 门限）
   - agent/pre-step 意图注入（mode=inject）
   - 识别观测日志（识别 vs 主模型实际调用对照）
 external:
+  - key: log-dir
+    desc: 插件文件日志目录（按大小/日期双维轮转，文件名带日期）
+    config: logDir
   - key: taxonomy
     desc: 意图体系生成物（scripts/gen-intent-taxonomy.ts 重跑再生）
     config: taxonomyPath

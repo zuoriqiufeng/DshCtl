@@ -9,7 +9,8 @@
  * （插件目录没有 node_modules，裸包导入只在 DSH loader 加载 index.ts 时才解析得到）。
  */
 
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SYMPTOM_ALIASES, ERROR_ALIASES } from '../dsh-plugin/constants.ts'
 import { buildScorer, classify } from './engine.ts'
@@ -19,6 +20,10 @@ import { buildAliasIndex, collectAliasVotes, DEFAULT_GATE, layer2 } from './laye
 import { mergeTaxonomy, normalizeIntent, type IntentDef } from './taxonomy.ts'
 import { renderInjectionText } from './inject.ts'
 import { parseFrontmatter, parseSkillMeta } from './frontmatter.ts'
+import {
+  createFileLog, dateStr, dayFilePath, formatArgs, formatDecision, formatTimestamp,
+  listDataFiles, pruneOldDays, rotateDayFile,
+} from './logfile.ts'
 import { cosine } from './bm25.ts'
 import { OVERRIDES } from './overrides.ts'
 
@@ -363,6 +368,141 @@ console.log('\n[10] 性能：层 1+2 本地耗时')
   console.log(`  p50=${p50.toFixed(2)}ms p95=${p95.toFixed(2)}ms max=${max.toFixed(2)}ms（含每次重建 BM25 索引）`)
   check('p95 < 10ms（本地路径，远低于一次大模型调用）', p95 < 10, `p95=${p95.toFixed(2)}ms`)
   check('max < 30ms', max < 30, `max=${max.toFixed(2)}ms`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[11] 文件日志：日期/大小双维轮转 + 级别门 + 易读格式')
+{
+  const root = mkdtempSync(join(tmpdir(), 'intent-router-log-'))
+  const dir = join(root, 'logs')
+  const base = join(dir, 'intent-router.log')
+  const today = dateStr(new Date())
+
+  check('文件名带日期（dayFilePath）', dayFilePath(base, '2026-10-08').endsWith('intent-router_2026-10-08.log'),
+    dayFilePath(base, '2026-10-08'))
+  check('时间戳为本地时间 + 显式偏移', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} [+-]\d{2}:\d{2}$/.test(formatTimestamp(new Date())),
+    formatTimestamp(new Date()))
+
+  // 级别门：info 级不写 debug 行，写 info/决策行
+  const info = createFileLog({ dir, stem: 'intent-router', level: 'info', maxBytes: 512 * 1024, backups: 3, retentionDays: 0, textMaxChars: 200, now: () => new Date() })
+  info.debug('不应落盘的 debug 行')
+  info.info('启动摘要 mode=inject 意图=22 条')
+  info.decision({
+    turn: 1, sid: 'session-abc', mode: 'inject', accepted: true, reason: 'accepted',
+    intent: 'diagnose_error', target: 'diagnose_error', kind: 'tool', tier: 'rule',
+    rule: 'exact:diagnose_error', slots: { error_code: 'ORA-00942' }, ms: 0, injected: true,
+    text: 'ORA-00942 是什么原因？', rank: [{ id: 'diagnose_error', bm25: 61.47 }],
+  })
+  const written = readFileSync(dayFilePath(base, today), 'utf8')
+  check('写到了当日文件', existsSync(dayFilePath(base, today)))
+  check('info 级不写 debug 行', !written.includes('不应落盘'))
+  check('启动摘要入库', written.includes('启动摘要'))
+  check('决策行含关键字段（ASCII key）',
+    written.includes('decision') && written.includes('intent=diagnose_error')
+    && written.includes('tier=rule') && written.includes('ms=0') && written.includes('inject=yes'),
+    written.split('\n')[1] ?? '')
+  check('决策行含槽位与中文原文', written.includes('slots=error_code:ORA-00942') && written.includes('ORA-00942 是什么原因'))
+  check('info 级不含 debug 明细（rank）', !written.includes('rank='))
+  check('currentPath 指向当日文件', info.currentPath() === dayFilePath(base, today), info.currentPath())
+
+  // debug 级：追加排名明细 + 原文不截断
+  const dbg = createFileLog({ dir, stem: 'intent-router', level: 'debug', maxBytes: 512 * 1024, backups: 3, retentionDays: 0, textMaxChars: 20, now: () => new Date() })
+  const longText = '这是一条超过二十个字符的原文，用来验证 debug 级不截断而 info 级会截断的行为差异'
+  dbg.decision({
+    turn: 2, sid: 'session-def', mode: 'observe', accepted: true, reason: 'accepted',
+    intent: 'query_product', target: 'query_product', kind: 'tool', tier: 'algo',
+    rule: 'bm25', slots: {}, ms: 3, text: longText,
+    rank: [{ id: 'query_product', bm25: 33.3 }, { id: 'check_compatibility', bm25: 15.4 }],
+    actualTools: ['query_product'],
+  })
+  const afterDebug = readFileSync(dayFilePath(base, today), 'utf8')
+  check('debug 级落 rank 明细', afterDebug.includes('rank=query_product:33.3'))
+  check('debug 级原文不截断', afterDebug.includes(longText.slice(-6)))
+  check('debug 级落实际工具对照', afterDebug.includes('actual=query_product'))
+  const infoOnly = formatDecision(
+    { turn: 2, sid: 's', mode: 'observe', accepted: true, reason: 'accepted', intent: 'x', target: 'x', kind: 'tool', tier: 'algo', rule: 'bm25', slots: {}, ms: 1, text: longText },
+    { textMaxChars: 20, debug: false },
+  )
+  check('info 级按 textMaxChars 截断', infoOnly.includes('…') && !infoOnly.includes(longText.slice(-6)))
+
+  // 大小轮转：上限压到极小 → 出现 .1 且旧内容落在 .1
+  const rot = createFileLog({ dir, stem: 'intent-router', level: 'info', maxBytes: 64, backups: 3, retentionDays: 0, textMaxChars: 0, now: () => new Date() })
+  const before = readFileSync(dayFilePath(base, today), 'utf8')
+  rot.info('触发轮转的第一条')
+  rot.info('触发轮转的第二条')
+  const shard1 = `${dayFilePath(base, today)}.1`
+  check('超限切出 .1 分片', existsSync(shard1))
+  check('分片保留的是轮转前的内容', readFileSync(shard1, 'utf8').includes(before.split('\n')[0]!))
+  check('当日文件继续接收新行', readFileSync(dayFilePath(base, today), 'utf8').includes('触发轮转的第二条'))
+
+  // 跨日：注入 now → 落到另一个日文件
+  const other = rotateDayFile(base, { maxBytes: 512 * 1024, backups: 3, retentionDays: 0, now: new Date('2026-01-01T00:00:00Z') })
+  check('跨日开新文件（注入 now）', other.endsWith('intent-router_2026-01-01.log') && !existsSync(other), other
+
+  )
+  const cross = createFileLog({ dir, stem: 'intent-router', level: 'info', maxBytes: 512 * 1024, backups: 3, retentionDays: 0, textMaxChars: 200, now: () => new Date('2026-01-02T10:00:00Z') })
+  cross.info('跨日写入')
+  check('写入落到注入日期的文件', existsSync(dayFilePath(base, dateStr(new Date('2026-01-02T10:00:00Z')))))
+
+  // 清理：旧日文件与分片一起删，保留期内不动（日期刻意拉开，避免受时区影响）
+  writeFileSync(join(dir, 'intent-router_2026-01-01.log'), 'old\n')
+  writeFileSync(join(dir, 'intent-router_2026-01-01.log.1'), 'old shard\n')   // 旧日文件的分片
+  writeFileSync(join(dir, 'intent-router_2026-10-05.log'), 'recent\n')        // 距基准 3 天，保留期内
+  // 基准 2026-10-08 保留 30 天 → 截止 2026-09-08（含时区偏移也不影响判定）
+  const removed = pruneOldDays(base, 30, new Date('2026-10-08T12:00:00Z'))
+  check('retention 删除超期日文件及其分片', removed === 3 && !existsSync(join(dir, 'intent-router_2026-01-01.log'))
+    && !existsSync(join(dir, 'intent-router_2026-01-01.log.1')), `removed=${removed}`)
+  check('retention 保留期内文件不动', existsSync(join(dir, 'intent-router_2026-10-05.log')))
+  check('retention 不碰当日文件', existsSync(dayFilePath(base, today)))
+  check('retention=0 不删除任何东西', pruneOldDays(base, 0, new Date('2030-01-01T00:00:00Z')) === 0
+    && existsSync(join(dir, 'intent-router_2026-10-05.log')))
+
+  // 枚举：新旧命名兼容，过滤无关文件
+  writeFileSync(join(dir, 'unrelated.log'), 'x\n')
+  const listed = listDataFiles(base).map((f) => f.split('/').pop())
+  check('listDataFiles 兼容日文件与分片', listed.some((n) => n?.startsWith(`intent-router_${today}.log`)))
+  check('listDataFiles 排除无关文件', !listed.includes('unrelated.log'), listed.join(','))
+  check('listDataFiles 排除 .bak 等非数字后缀（不误收）', listDataFiles(base).every((f) => !f.endsWith('.bak')))
+
+  // 级别 off：完全不写、currentPath 为空
+  const offDir = join(root, 'off-logs')
+  const off = createFileLog({ dir: offDir, stem: 'intent-router', level: 'off', maxBytes: 1024, backups: 3, retentionDays: 0, textMaxChars: 200 })
+  off.info('不应创建文件')
+  check('level=off 不落盘且不建目录', !existsSync(offDir) && off.enabled() === false && off.currentPath() === '')
+
+  // 降级：logDir 指向一个普通文件 → 写失败静默 + onError 只报一次
+  const blocker = join(root, 'blocker')
+  writeFileSync(blocker, 'not a dir\n')
+  let reported = 0
+  const broken = createFileLog({
+    dir: blocker, stem: 'intent-router', level: 'info', maxBytes: 1024, backups: 3, retentionDays: 0, textMaxChars: 200,
+    onError: () => { reported++ },
+  })
+  let threw = false
+  try {
+    broken.info('第一条')
+    broken.warn('第二条')
+  } catch { threw = true }
+  check('写失败不抛（降级铁律）', threw === false)
+  check('写失败只报一次', reported === 1, `reported=${reported}`)
+
+  // 格式化：printf 语义对齐 cordis 内建
+  check('formatArgs %s/%d', formatArgs('a=%s n=%d', ['x', 3.9]) === 'a=x n=3', formatArgs('a=%s n=%d', ['x', 3.9]))
+  check('formatArgs %o 走 JSON', formatArgs('%o', [{ a: 1 }]) === '{"a":1}')
+  check('formatArgs %% 转义', formatArgs('100%%', []) === '100%')
+  check('formatArgs 未知占位符原样保留', formatArgs('%z', []) === '%z')
+  check('formatArgs 多余参数以空格追加', formatArgs('x', ['y', 'z']) === 'x y z')
+  check('formatArgs 非字符串首个参数容错', formatArgs(42, ['y']) === '42 y')
+
+  // 单行保证：原文里的换行/引号被转义
+  const messy = formatDecision(
+    { turn: 3, sid: 's', mode: 'inject', accepted: false, reason: 'low-score', intent: '', target: '', kind: '', tier: '', rule: '', slots: {}, ms: 1, text: '第一行\n第二行 "引号"' },
+    { textMaxChars: 0, debug: false },
+  )
+  check('原文换行被转义（一条日志一行）', !messy.includes('\n') && messy.includes('\\n'), messy)
+  check('原文引号被转义', messy.includes('\\"引号\\"'))
+
+  rmSync(root, { recursive: true, force: true })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

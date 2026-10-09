@@ -10,7 +10,7 @@
 
 | 件 | 位置 | 说明 |
 |---|---|---|
-| 插件本体 | `code/intent-router/` | 12 个 TS/JSON 文件 + README + 实现设计（`doc/intent-router-design.md`） |
+| 插件本体 | `code/intent-router/` | 13 个 TS/JSON 文件（含文件日志模块 `logfile.ts`）+ README + 实现设计（`doc/intent-router-design.md`） |
 | 意图体系生成器 | `code/scripts/gen-intent-taxonomy.ts` | 从工具/skill_manifest/SKILL.md/别名表/hotpath 派生（`--check` 可做 CI 漂移守护） |
 | 评测与标定工具 | `code/scripts/eval-intent.ts` | 回归（退出码）+ 门限扫描 `--sweep` + 向量对照 `--with-vector` |
 | 标注集 | `code/intent-router/eval/questions.json` | 24 条（13 采纳 / 11 放弃），门限标定与回归依据 |
@@ -48,7 +48,7 @@
 | A6 CI 一键 | ✅ | `bash code/dshctl/ci.sh` → 六环节（新增 [4/6] intent-router self-test）**ALL GREEN** |
 | A7 领域契约 | ✅ | `dshctl check ops --ci` → **0 error / 1 warn**（唯一 warn 是既有的上游新增行评估）；R12 对 intent-router **pass** |
 | A8 apply 幂等 | ✅ | `dshctl apply ops --yes` 后 `dshctl diff ops` **空**（生成面与现状一致） |
-| A9 实例观测（observe） | ✅ | 重启后发两问，`$DSH_HOME/logs/intent-router.jsonl` 落两行：`ORA-00942→diagnose_error(tier=rule,slot=error_code)` ms=0；`增量同步卡住不动了→diagnose_incremental_stuck(tier=alias,rule=alias:同步卡住)` ms=2；含 bm25 排名 |
+| A9 实例观测（observe） | ✅ | 重启后发两问，`$DSH_HOME/logs/intent-router.jsonl` 落两行（**该文件形态已在 §L 迭代改为按日期命名的文本日志**）：`ORA-00942→diagnose_error(tier=rule,slot=error_code)` ms=0；`增量同步卡住不动了→diagnose_incremental_stuck(tier=alias,rule=alias:同步卡住)` ms=2；含 bm25 排名 |
 | A10 实例注入（inject） | ✅ | 切 `mode=inject` 后请求，会话记录（多帧 zstd 逐帧解压）出现 `user/message` `source.kind="intent-router"`，正文为渲染后的提示（含槽位 `error_code=ORA-00942` 与免责声明）；观测日志该行 `injected:true` |
 | W1 外部模型网关不可用（非本插件问题） | ⚠️ | 注入后的 `turn/end` 报 `llm-deepseek: no API key ...` / `503 model_not_found`——即既有遗留问题（见 orchestration-plan §8 遗留项），与意图识别无关；本插件的验证只依赖 pre-step 之前的链路 |
 | W2 标注集规模 | ⚠️ | 仅 24 条（领域内自建）。门限按此标定，样本仍小；后续用 observe 日志的"识别 vs 主模型实际调用"对照持续校准 |
@@ -72,9 +72,41 @@
    修复：`useVector` 默认 **false**（插件零外部依赖、热路径不受影响），并在 README/设计文档留下复核方法与判定标准。
 5. **同一症状多 owner 会让别名失效**。症状：`incremental_stuck` 若同时挂在两个 skill 意图上，别名索引直接不收（歧义保护），最有价值的症状口语全部失效。
    修复：`SYMPTOM_OWNER` 只留唯一 owner（其余进 `skills[]`），并把 `connection_error` 归到**工具**意图 `diagnose_db_link`——既减少相邻意图抢票，注入的"调用某工具"也比"加载某 Skill"更可执行。
-6. **"BM25 无重叠就跳过向量"是必要的短路**。症状：无关输入（"嗯"）也会触发一次 100ms 的向量调用。
+6. **插件自身的日志等于没打**。症状：实例运行正常，但 `journalctl -u dsh-ops-trial` 只有 systemd 生命周期行与一行启动命令，插件的 warn/error 一条也看不到。
+   根因：cordis 的 `LoggerService` 默认只有内存 ring buffer（1000 条），ops profile 没有 console exporter，`ctx.logger` 的输出没有任何持久去向——重启即丢。
+   修复：`dualLogger` 把 harness logger 与文件日志合成一条（同一条消息两边都到）；致命信息（如"意图体系加载失败，插件不生效"）改用 `error` 级；日志写入失败本身一次性报 **stderr**（此时 journalctl 是唯一还看得见的通道）。
+7. **项目里只有"大小轮转"的 TS 移植，日期维度缺失**。症状：想按"文件名带日期 + 跨日自动新文件 + 按天清理"落地时，TS 侧 grep `day_file|retentionDays` 零命中，只有 `rotateIfNeeded`。
+   根因：DSH 移植是"部分移植"——`log_rotate.py` 的 `day_file_path`/`rotate_day_file`/`_prune_old_days`/`iter_data_files` 从未移植，且现有调用方（`logGap`）仍写逻辑基名。
+   修复：按 Python 1:1 补齐四个函数（`logfile.ts`），大小维度仍复用 dsh-plugin；两处刻意偏差（prune 频率收敛、日期正则泛化）在文件头注释里标明，避免后续被当成 bug 改回去。
+8. **测试用例的日期算错会误判实现**。症状：retention 测试断言"保留期内文件不动"失败，且 `removed=4`（期望 2）。
+   根因：用例里把 `2026-09-01` 当作"近期"，但基准是 `2026-10-08` 保留 30 天 → 截止 `2026-09-08`，该文件其实**已超期**，被删是正确行为。
+   修复：用例日期刻意拉开（旧 2026-01-01 / 近 2026-10-05 / 当日），并在注释里写明"含时区偏移也不影响判定"——避免测试与被测语义各说各话。
+。症状：无关输入（"嗯"）也会触发一次 100ms 的向量调用。
    根因：跨方法互证要求"BM25 前 K 名"，零重叠时该条件不可能成立，调用纯属浪费。
    修复：`reason === 'no-overlap'` 时不调用向量（自测有断言）。
+
+## 5.1 日志迭代（2026-10-09）：可配置目录 + 双维轮转 + 易读格式
+
+需求：插件的排查日志要能配置输出目录、按大小与日期轮转、文件名带日期、格式简单易懂。
+
+**调研结论（决定了改法）**：① 项目已有可复用的轮转实现 `rotateIfNeeded`（`code/dsh-plugin/supplement.ts:126`，1:1 移植自共享 BKN），但**日期维度没有 TS 版**——规范源是 `i2stream-bkn/plugin/log_rotate.py`；
+② intent-router 的日志**没有任何程序在读**（全盘 grep 只有插件自身/README/domain.yml 注释/本文件），改格式安全；
+③ `ctx.logger` 在 ops 实例里**没有持久去向**（cordis 内存 ring buffer，profile 无 console exporter，`journalctl -u dsh-ops-trial` 零命中）——插件自身的 warn/error 原本等于没打。
+
+**交付**：新增 `code/intent-router/logfile.ts`（纯模块）——`dayFilePath`/`rotateDayFile`/`pruneOldDays`/`listDataFiles` 按 `log_rotate.py` 1:1 移植，大小维度复用 dsh-plugin；`formatLine`/`formatDecision`/`formatArgs` 负责易读文本与 printf 格式化；
+`createFileLog` 提供级别门（off/error/warn/info/debug）与写失败静默；`index.ts` 用 `dualLogger` 把插件自身日志与文件日志合成一条（这是"排查困难"的主因）。
+
+**两处刻意偏差**（语义不变，注释已写明）：prune 频率从"每次写都 glob"收敛为"每进程每天一次 + 首次写入一次"；日期提取正则从硬编码 `.jsonl` 泛化到实际后缀。
+
+| 用例 | 结果 | 证据 |
+|---|---|---|
+| L1 日志模块自测 | ✅ | self-test 新增 [11] 段 36 条断言（原 77 → **113 全绿**）：文件名带日期 / 跨日开新文件（注入 now）/ 超限切 `.1` 且旧内容落在 `.1` / retention 删旧留新（含分片）/ `retention=0` 不删 / 级别门（info 不写 debug 行）/ 行内关键字段与中文值 / info 截断 vs debug 全文 / 写失败静默且只报一次 / `formatArgs` 对齐 `%s %d %i %f %o %%` 与多余参数 / 换行与引号转义 |
+| L2 插件自身日志落盘 | ✅ | 实例重启后文件首两行即为插件生命周期信息：`[intent-router] 意图体系已加载：22 条（跳过 0），mode=inject`、`已挂载 agent/pre-step（… 日志级别=info，日志文件=…/intent-router_2026-10-09.log）` |
+| L3 决策行易读 | ✅ | `2026-10-09 10:19:57.054 +08:00 INFO  decision turn=1 sid=session-85fff276-… mode=inject accepted=yes reason=accepted intent=diagnose_error kind=tool tier=rule rule=exact:diagnose_error slots=error_code:ORA-00942 ms=0 inject=yes text="ORA-00942 是什么原因？"`（本地时间带偏移、ASCII key 便于 grep） |
+| L4 debug 明细 | ✅ | 临时 `logLevel: debug` → 决策行追加 `rank=check_action_risk:67.27,resolve_operation:35.02,diagnose_incremental_stuck:11.13`；恢复 info 后不再出现 |
+| L5 大小轮转 | ✅ | 临时 `logMaxBytes: 600` → 出现 `intent-router_2026-10-09.log.1`（较新）与 `.log.2`（最旧 931B），语义与 BKN 一致（`.1` 最新） |
+| L6 旧 JSONL 停止增长 | ✅ | 迭代后多次请求，`.dsh-home/logs/intent-router.jsonl` 仍为 3 行（历史文件未删，`listDataFiles` 兼容旧命名） |
+| L7 配置面与契约 | ✅ | `dshctl check ops --ci` 0 error；`apply` 后 `diff` 空；生成物含 `logLevel: info` 与说明注释 |
 
 ## 6. 未做 / 后续
 
@@ -88,7 +120,7 @@
 
 ## 7. 改动文件清单
 
-新增：`code/intent-router/**`（插件 12 文件 + README + doc/设计 + eval/questions.json）、
+新增：`code/intent-router/**`（插件文件 + README + doc/设计 + eval/questions.json；日志迭代新增 `logfile.ts`）、
 `code/scripts/gen-intent-taxonomy.ts`、`code/scripts/eval-intent.ts`、本文件。
 
 修改：`domains/ops/domain.yml`（plugins[] 加 intent-router，mode=inject、useVector=false）、
