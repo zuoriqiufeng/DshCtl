@@ -1,0 +1,30 @@
+# dsh.plugin.yml —— 插件自描述（schema:1）；profile 装配的元数据来源（dshctl plugin install 消费）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效；须重启实例）
+schema: 1
+id: intent-router
+name: i2stream-intent-router
+entry: index.ts
+layout: in-place
+description: 分层意图识别。第 1 层正则/精确、第 2 层别名+BM25(+向量) 算法，两层高置信才把意图注入本步提示；不达门限完全不干预、交回主模型——意图识别不再一律走大模型，省掉探索性工具调用与试错轮次（零额外大模型调用）。
+config:
+  mode: observe
+  embedUrl: http://127.0.0.1:8096/embed
+  minBm25Score: 16
+  minBm25RelMargin: 0.35
+  minCos: 0.62
+  minCosMargin: 0.06
+  vectorCorroborateTopK: 2
+  useVector: false   # 实测无可用工作点，详见 README「向量路径为何默认关闭」
+provides:
+  - 分层意图识别（正则/精确 → 别名+BM25+向量 → 门限）
+  - agent/pre-step 意图注入（mode=inject）
+  - 识别观测日志（识别 vs 主模型实际调用对照）
+external:
+  - key: taxonomy
+    desc: 意图体系生成物（scripts/gen-intent-taxonomy.ts 重跑再生）
+    config: taxonomyPath
+  - key: embed-sidecar
+    desc: BGE embedding sidecar（层 2c 向量相似；不可达则退化为 BM25-only）
+    config: embedUrl
+    env: I2STREAM_EMBED_URL
+category: 意图路由

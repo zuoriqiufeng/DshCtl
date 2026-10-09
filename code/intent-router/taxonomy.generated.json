@@ -1,0 +1,984 @@
+{
+  "schema": 1,
+  "generatedAt": "2026-10-08",
+  "sources": [
+    "tools: plugin-registry/registry.yml（bkn-plugin provides ×12）",
+    "aliases: code/dsh-plugin/constants.ts（SYMPTOM ×56 / ERROR ×20 / DB ×38）",
+    "skills: /hdd/demo/public/dsh-info/.dsh-home/skills（×26）",
+    "manifest: /hdd/demo/public/i2stream-bkn/plugin/skill_manifest.yaml（×26）",
+    "hotpath: code/presets/i2stream-ops/hotpath.md（症状 → Skill）"
+  ],
+  "intents": [
+    {
+      "id": "query_product",
+      "kind": "tool",
+      "target": "query_product",
+      "label": "产品信息查询",
+      "skills": [],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "i2Stream 支持哪些数据库",
+        "产品支持哪些数据源",
+        "i2Stream 有哪些核心组件",
+        "你们的同步工具能接哪些库",
+        "支持哪些源端和目标端",
+        "产品版本有哪些能力"
+      ],
+      "keywords": [
+        "支持哪些",
+        "产品",
+        "组件",
+        "数据源",
+        "源端",
+        "目标端",
+        "Oracle",
+        "MySQL",
+        "SQL Server",
+        "PostgreSQL",
+        "DB2",
+        "达梦",
+        "OceanBase",
+        "GaussDB",
+        "TDSQL",
+        "GoldenDB",
+        "KingBase",
+        "YashanDB",
+        "VastBase",
+        "Kafka",
+        "Hive",
+        "HBase",
+        "Doris",
+        "Starrocks",
+        "TiDB",
+        "MongoDB",
+        "Redis",
+        "MariaDB",
+        "Sybase",
+        "Informix",
+        "MogDB",
+        "PolarDB-X",
+        "PolarDB-pg",
+        "磐维DB",
+        "ClickHouse",
+        "DWS",
+        "AnalyticDB",
+        "Datahub"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])query_product(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "resolve_relation",
+      "kind": "tool",
+      "target": "resolve_relation",
+      "label": "实体关系查询",
+      "skills": [],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "这条规则对应哪个进程",
+        "iatrack 负责什么",
+        "哪个进程负责装载",
+        "工作节点和规则是什么关系",
+        "这个报错来自哪个进程",
+        "进程之间的依赖关系"
+      ],
+      "keywords": [
+        "哪个进程",
+        "关系",
+        "依赖"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])resolve_relation(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "resolve_operation",
+      "kind": "tool",
+      "target": "resolve_operation",
+      "label": "操作解析",
+      "skills": [
+        "i2stream-rule-manager",
+        "i2stream-node-manager",
+        "i2stream-db-manager"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "怎么创建同步规则",
+        "如何激活工作节点",
+        "注册数据库的步骤是什么",
+        "怎么停止一条规则",
+        "如何删除同步规则",
+        "创建比较任务怎么操作",
+        "灾备切换怎么做",
+        "激活节点"
+      ],
+      "keywords": [
+        "操作",
+        "创建",
+        "删除",
+        "启动",
+        "停止",
+        "激活",
+        "注册"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])resolve_operation(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "list_scenarios",
+      "kind": "tool",
+      "target": "list_scenarios",
+      "label": "场景清单",
+      "skills": [
+        "i2stream-migration-designer"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "有哪些同步场景",
+        "支持双活吗",
+        "两地三中心怎么做",
+        "有哪些灾备场景",
+        "能做什么类型的同步",
+        "支持异构迁移场景吗"
+      ],
+      "keywords": [
+        "场景",
+        "双活",
+        "两地三中心",
+        "容灾",
+        "迁移类型"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])list_scenarios(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "get_prerequisites",
+      "kind": "tool",
+      "target": "get_prerequisites",
+      "label": "前置条件",
+      "skills": [
+        "i2stream-rule-manager",
+        "i2stream-db-manager"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "创建规则需要什么前置条件",
+        "同步前要准备什么",
+        "做灾备切换有什么前提",
+        "需要开启归档日志吗",
+        "有什么限制条件",
+        "操作之前要检查什么"
+      ],
+      "keywords": [
+        "前置",
+        "前提",
+        "条件",
+        "限制",
+        "归档日志"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])get_prerequisites(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "check_action_risk",
+      "kind": "tool",
+      "target": "check_action_risk",
+      "label": "操作风险校验",
+      "skills": [
+        "i2stream-rule-manager"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "能不能删除这个规则",
+        "什么情况下禁止删除同步规则",
+        "重启规则有风险吗",
+        "这个操作安全吗",
+        "可以强制恢复吗",
+        "直接停掉规则会怎样"
+      ],
+      "keywords": [
+        "禁止",
+        "风险"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])check_action_risk(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "check_compatibility",
+      "kind": "tool",
+      "target": "check_compatibility",
+      "label": "兼容性检查",
+      "skills": [
+        "i2stream-migration-designer",
+        "i2stream-db-manager"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "Oracle 到 MySQL 支持吗",
+        "源端 MySQL 能同步到 Doris 吗",
+        "版本兼容性怎么样",
+        "支持哪些版本的 Oracle",
+        "这个库和目标库兼容吗",
+        "字符集要求是什么"
+      ],
+      "keywords": [
+        "兼容",
+        "版本",
+        "字符集",
+        "Oracle",
+        "MySQL",
+        "SQL Server",
+        "PostgreSQL",
+        "DB2",
+        "达梦",
+        "OceanBase",
+        "GaussDB",
+        "TDSQL",
+        "GoldenDB",
+        "KingBase",
+        "YashanDB",
+        "VastBase",
+        "Kafka",
+        "Hive",
+        "HBase",
+        "Doris",
+        "Starrocks",
+        "TiDB",
+        "MongoDB",
+        "Redis",
+        "MariaDB",
+        "Sybase",
+        "Informix",
+        "MogDB",
+        "PolarDB-X",
+        "PolarDB-pg",
+        "磐维DB",
+        "ClickHouse",
+        "DWS",
+        "AnalyticDB",
+        "Datahub"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])check_compatibility(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_error",
+      "kind": "tool",
+      "target": "diagnose_error",
+      "label": "错误码诊断",
+      "skills": [
+        "i2stream-db-diagnostics",
+        "i2stream-log-analyzer"
+      ],
+      "symptoms": [],
+      "errors": [
+        "-4073",
+        "-4002",
+        "YAS-02276",
+        "-4016",
+        "ORA-01109",
+        "ORA-01017",
+        "ORA-12541",
+        "ORA-12154",
+        "-1",
+        "-4071",
+        "-4031",
+        "-4046",
+        "ORA-01555",
+        "ORA-00942",
+        "ORA-24344"
+      ],
+      "prototypes": [
+        "错误码 ORA-00942 是什么意思",
+        "报错 -4073 怎么解决",
+        "YAS-02276 是什么原因",
+        "这个错误码什么原因导致的",
+        "日志解析异常怎么处理",
+        "ORA-01555 怎么恢复"
+      ],
+      "keywords": [
+        "错误码",
+        "报错",
+        "异常",
+        "什么原因",
+        "错误"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])diagnose_error(?![A-Za-z0-9_])",
+          "slot": "tool"
+        },
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])(?:[A-Z]{2,}-[0-9]+|-[0-9]{3,5})(?![0-9])",
+          "slot": "error_code"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_db_link",
+      "kind": "tool",
+      "target": "diagnose_db_link",
+      "label": "链路诊断",
+      "skills": [
+        "i2stream-db-diagnostics"
+      ],
+      "symptoms": [
+        "connection_error"
+      ],
+      "errors": [],
+      "prototypes": [
+        "数据库连不上",
+        "链路报错怎么排查",
+        "连接超时是什么问题",
+        "目标端无监听",
+        "同步链路断了",
+        "源端连不通怎么查",
+        "连不上库",
+        "连接超时",
+        "认证失败",
+        "端口不通",
+        "连接失败",
+        "连接异常"
+      ],
+      "keywords": [
+        "连不上",
+        "连接",
+        "链路",
+        "超时",
+        "监听",
+        "不通",
+        "排查",
+        "连不上库",
+        "连接超时",
+        "认证失败",
+        "端口不通",
+        "连接失败",
+        "连接异常",
+        "无法连接",
+        "连不通"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])diagnose_db_link(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "design_solution",
+      "kind": "tool",
+      "target": "design_solution",
+      "label": "方案设计",
+      "skills": [
+        "i2stream-migration-designer"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "设计一个 Oracle 到 MySQL 的迁移方案",
+        "怎么做双活方案",
+        "给个同步方案",
+        "两地三中心方案怎么设计",
+        "异构迁移的方案建议",
+        "帮我出个容灾方案"
+      ],
+      "keywords": [
+        "方案",
+        "设计",
+        "规划"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])design_solution(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "explain_architecture",
+      "kind": "tool",
+      "target": "explain_architecture",
+      "label": "架构原理",
+      "skills": [],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "增量同步的原理是什么",
+        "全量和增量怎么实现的",
+        "事务一致性怎么保证",
+        "抽取是怎么做的",
+        "同步的底层原理",
+        "数据是怎么被捕获的"
+      ],
+      "keywords": [
+        "原理",
+        "架构",
+        "机制",
+        "底层",
+        "一致性"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])explain_architecture(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "search_qdrant",
+      "kind": "tool",
+      "target": "search_qdrant",
+      "label": "知识检索",
+      "skills": [],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "帮我查一下相关资料",
+        "检索一下文档里关于性能的内容",
+        "知识库里有没有关于日志的说明",
+        "查一下这块的经验",
+        "搜一下相关案例"
+      ],
+      "keywords": [
+        "检索",
+        "资料",
+        "文档",
+        "知识库"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])search_qdrant(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_incremental_stuck",
+      "kind": "skill",
+      "target": "i2stream-db-diagnostics",
+      "label": "i2stream-db-diagnostics 诊断（incremental_stuck）",
+      "skills": [
+        "i2stream-db-diagnostics",
+        "i2stream-log-analyzer"
+      ],
+      "symptoms": [
+        "incremental_stuck"
+      ],
+      "errors": [],
+      "prototypes": [
+        "增量卡住怎么办",
+        "同步卡住怎么办",
+        "同步不动了怎么办",
+        "位点不推进怎么办",
+        "规则变红怎么办",
+        "同步停滞怎么办",
+        "增量延迟怎么办",
+        "同步延迟大怎么办",
+        "增量卡住",
+        "同步卡住",
+        "同步不动了",
+        "位点不推进",
+        "规则变红",
+        "同步停滞",
+        "增量延迟",
+        "同步延迟大",
+        "i2Stream 多数据库链路诊断平台骨架。支持 Oracle/MySQL/PostgreSQL/SQLServer/DB2/OceanBase。"
+      ],
+      "keywords": [
+        "增量卡住",
+        "同步卡住",
+        "同步不动了",
+        "位点不推进",
+        "规则变红",
+        "同步停滞",
+        "增量延迟",
+        "同步延迟大",
+        "卡住不动",
+        "同步没同步",
+        "增量没同步",
+        "incremental_stuck"
+      ],
+      "exact": [],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_data_mismatch",
+      "kind": "skill",
+      "target": "i2stream-db-diagnostics",
+      "label": "i2stream-db-diagnostics 诊断（data_mismatch）",
+      "skills": [
+        "i2stream-db-diagnostics"
+      ],
+      "symptoms": [
+        "data_mismatch"
+      ],
+      "errors": [],
+      "prototypes": [
+        "数据对不上怎么办",
+        "数据错乱怎么办",
+        "两端不一致怎么办",
+        "校验不一致怎么办",
+        "数据不一致怎么办",
+        "数据不同步怎么办",
+        "数据校验失败怎么办",
+        "数据差异怎么办",
+        "数据对不上",
+        "数据错乱",
+        "两端不一致",
+        "校验不一致",
+        "数据不一致",
+        "数据不同步",
+        "数据校验失败",
+        "数据差异",
+        "i2Stream 多数据库链路诊断平台骨架。支持 Oracle/MySQL/PostgreSQL/SQLServer/DB2/OceanBase。"
+      ],
+      "keywords": [
+        "数据对不上",
+        "数据错乱",
+        "两端不一致",
+        "校验不一致",
+        "数据不一致",
+        "数据不同步",
+        "数据校验失败",
+        "数据差异",
+        "data_mismatch"
+      ],
+      "exact": [],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_crash_loop",
+      "kind": "skill",
+      "target": "i2stream-log-analyzer",
+      "label": "i2stream-log-analyzer 诊断（crash_loop）",
+      "skills": [
+        "i2stream-log-analyzer",
+        "i2stream-db-diagnostics"
+      ],
+      "symptoms": [
+        "crash_loop"
+      ],
+      "errors": [],
+      "prototypes": [
+        "崩溃重启怎么办",
+        "起不来怎么办",
+        "反复重启怎么办",
+        "进程挂了怎么办",
+        "崩溃循环怎么办",
+        "进程崩溃怎么办",
+        "挂了怎么办",
+        "报错怎么办",
+        "崩溃重启",
+        "起不来",
+        "反复重启",
+        "进程挂了",
+        "崩溃循环",
+        "进程崩溃",
+        "挂了",
+        "报错",
+        "i2Stream 日志分析技能。当用户提供 i2Stream 日志（模板+样本），"
+      ],
+      "keywords": [
+        "崩溃重启",
+        "起不来",
+        "反复重启",
+        "进程挂了",
+        "崩溃循环",
+        "进程崩溃",
+        "挂了",
+        "报错",
+        "出错",
+        "失败",
+        "crash",
+        "crash_loop"
+      ],
+      "exact": [],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_performance_degradation",
+      "kind": "skill",
+      "target": "i2stream-log-analyzer",
+      "label": "i2stream-log-analyzer 诊断（performance_degradation）",
+      "skills": [
+        "i2stream-log-analyzer",
+        "i2stream-db-diagnostics"
+      ],
+      "symptoms": [
+        "performance_degradation"
+      ],
+      "errors": [],
+      "prototypes": [
+        "变慢了怎么办",
+        "延迟大怎么办",
+        "追不上怎么办",
+        "队列堆积怎么办",
+        "性能下降怎么办",
+        "性能问题怎么办",
+        "同步慢怎么办",
+        "延迟高怎么办",
+        "变慢了",
+        "延迟大",
+        "追不上",
+        "队列堆积",
+        "性能下降",
+        "性能问题",
+        "同步慢",
+        "延迟高",
+        "i2Stream 日志分析技能。当用户提供 i2Stream 日志（模板+样本），"
+      ],
+      "keywords": [
+        "变慢了",
+        "延迟大",
+        "追不上",
+        "队列堆积",
+        "性能下降",
+        "性能问题",
+        "同步慢",
+        "延迟高",
+        "performance_degradation"
+      ],
+      "exact": [],
+      "injectable": true
+    },
+    {
+      "id": "env_validation",
+      "kind": "skill",
+      "target": "i2stream-env-validator",
+      "label": "环境校验",
+      "skills": [
+        "i2stream-env-validator"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "部署前环境与端口合规检查 Skill。负责提供 i2Stream 控制机、工作节点、数据库实例所需的默认端口矩阵、系统参数默认值、字符集/权限检查命令模板，以及防火墙连通性校验动作。"
+      ],
+      "keywords": [
+        "环境",
+        "校验",
+        "检查项",
+        "合规"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-env-validator(?![A-Za-z0-9_-])"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "process_debug",
+      "kind": "skill",
+      "target": "i2stream-iadebug",
+      "label": "进程级调试",
+      "skills": [
+        "i2stream-iadebug"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "iadebug",
+        "调试工具",
+        "进程调试",
+        "track状态",
+        "track",
+        "位点",
+        "SCN",
+        "增量卡住",
+        "增量异常",
+        "增量停止",
+        "规则异常",
+        "ABNORMAL",
+        "resumeforce",
+        "强制恢复",
+        "位点重置",
+        "数据修复",
+        "--resumeforce",
+        "keepredo",
+        "--loglevel",
+        "--info",
+        "ETL配置",
+        "filter配置",
+        "过滤规则",
+        "IA.RPC_RULE_STATE",
+        "RPC规则状态",
+        "-4002",
+        "-4006",
+        "-3522",
+        "1009",
+        "-4073",
+        "进程级调试",
+        "需要 iadebug 进程级调试/位点处理时加载",
+        "i2Stream iadebug 调试诊断工具，连接各底层服务组件（track/load/export/import/diff/monitor/rule/task/db/proxy/helper/migrate）。"
+      ],
+      "keywords": [
+        "iadebug",
+        "位点",
+        "日志级别",
+        "强制恢复",
+        "调试工具",
+        "进程调试",
+        "track状态",
+        "track",
+        "SCN",
+        "增量卡住",
+        "增量异常",
+        "增量停止",
+        "规则异常",
+        "ABNORMAL",
+        "resumeforce",
+        "位点重置",
+        "数据修复",
+        "--resumeforce",
+        "keepredo",
+        "--loglevel",
+        "--info",
+        "ETL配置",
+        "filter配置",
+        "过滤规则",
+        "IA.RPC_RULE_STATE",
+        "RPC规则状态",
+        "-4002",
+        "-4006",
+        "-3522",
+        "1009",
+        "-4073"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-iadebug(?![A-Za-z0-9_-])"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "license_query",
+      "kind": "skill",
+      "target": "i2stream-list-lic",
+      "label": "许可查询",
+      "skills": [
+        "i2stream-list-lic"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "i2UP 许可",
+        "涉及许可/授权/控制台认证（403 Invalid API key 等）时加载",
+        "当用户说到\"license\"、\"许可\"、\"lic\"、\"授权\"、\"认证检查\"、\"auth\"、\"登录检查\"时使用。查询 i2UP 可用 License 及控制台认证。"
+      ],
+      "keywords": [
+        "许可",
+        "license",
+        "授权"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-list-lic(?![A-Za-z0-9_-])"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "sql_generation",
+      "kind": "skill",
+      "target": "i2stream-sql-generator",
+      "label": "SQL 生成",
+      "skills": [
+        "i2stream-sql-generator"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "生成SQL",
+        "写SQL",
+        "查询语句",
+        "帮我写个查询",
+        "查一下表",
+        "看看有哪些",
+        "查版本",
+        "生成查询",
+        "数据库查询",
+        "sql查询",
+        "建表语句",
+        "查数据",
+        "查索引",
+        "查约束",
+        "查用户",
+        "查序列",
+        "查触发器",
+        "查视图",
+        "查存储过程",
+        "查权限",
+        "查会话",
+        "查锁",
+        "查表空间",
+        "查日志",
+        "统计行数",
+        "count表",
+        "抽样数据",
+        "sample数据",
+        "Oracle查询",
+        "MySQL查询",
+        "PG查询",
+        "PostgreSQL查询",
+        "DB2查询",
+        "崖山查询",
+        "YashanDB查询",
+        "OB查询",
+        "OceanBase查询",
+        "达梦查询",
+        "高斯查询",
+        "GaussDB查询",
+        "金仓查询",
+        "Kingbase查询",
+        "跨数据库 SQL 生成器。支持 12+ 数据库类型（Oracle/MySQL/PostgreSQL/DB2/YashanDB/"
+      ],
+      "keywords": [
+        "生成SQL",
+        "建表语句",
+        "DDL",
+        "写SQL",
+        "查询语句",
+        "帮我写个查询",
+        "查一下表",
+        "看看有哪些",
+        "查版本",
+        "生成查询",
+        "数据库查询",
+        "sql查询",
+        "查数据",
+        "查索引",
+        "查约束",
+        "查用户",
+        "查序列",
+        "查触发器",
+        "查视图",
+        "查存储过程",
+        "查权限",
+        "查会话",
+        "查锁",
+        "查表空间",
+        "查日志",
+        "统计行数",
+        "count表",
+        "抽样数据",
+        "sample数据",
+        "Oracle查询",
+        "MySQL查询",
+        "PG查询",
+        "PostgreSQL查询",
+        "DB2查询",
+        "崖山查询",
+        "YashanDB查询",
+        "OB查询",
+        "OceanBase查询",
+        "达梦查询",
+        "高斯查询",
+        "GaussDB查询",
+        "金仓查询",
+        "Kingbase查询"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-sql-generator(?![A-Za-z0-9_-])"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "topology_view",
+      "kind": "skill",
+      "target": "i2stream-topology-visualizer",
+      "label": "拓扑可视化",
+      "skills": [
+        "i2stream-topology-visualizer"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "i2Stream 部署拓扑渲染 Skill。负责根据用户输入生成带具体端口、路径、进程矩阵的拓扑图与部署说明。BKN 中只保留拓扑语义与 Skill 指针，所有具体端口/路径默认值由本 Skill 维护。"
+      ],
+      "keywords": [
+        "拓扑",
+        "架构图",
+        "画图"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-topology-visualizer(?![A-Za-z0-9_-])"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "none",
+      "kind": "none",
+      "label": "寒暄/无明确意图",
+      "skills": [],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "你好",
+        "在吗",
+        "谢谢",
+        "收到",
+        "好的",
+        "你好，帮我看个问题"
+      ],
+      "keywords": [
+        "你好",
+        "谢谢",
+        "收到"
+      ],
+      "exact": [],
+      "injectable": false
+    }
+  ]
+}

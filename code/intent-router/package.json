@@ -1,0 +1,28 @@
+{
+  "name": "dsh-plugin-intent-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "分层意图识别插件：正则/精确 → 别名+BM25(+向量) 算法 → 高置信才把意图注入本步提示，低置信完全不干预，交回主模型（零额外大模型调用）",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.ts",
+    "*.json",
+    "dsh.plugin.yml",
+    "package.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-session": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*"
+  }
+}

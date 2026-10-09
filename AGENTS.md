@@ -13,6 +13,7 @@
 | `code/dsh-plugin/` | BKN 插件（TS，12 工具 + 护栏 + 检索栈） | 外部插件，不进 harness 仓 |
 | `code/ops-api/` | api-server + 会话桥 + 记忆 + supervisor | 外部插件，不进 harness 仓 |
 | `code/ops-skill-manager/` | 技能自管理插件（skill_manage 工具 + usage 台账 + curator 迁移） | 外部插件，不进 harness 仓 |
+| `code/intent-router/` | 分层意图识别插件（正则/精确 → 别名+BM25(+向量) → 不达门限不干预） | 外部插件，不进 harness 仓；意图体系是生成物（`gen-intent-taxonomy.ts`），只有 `overrides.ts` 可手改 |
 | `code/dshctl/` | 领域编排 CLI（v0.1~v1.1 全量；使用手册 `doc/dshctl-manual.md`） | 交付期工具，只读写文件与配置 |
 | `plugin-registry/` | 插件库：registry.yml 目录 + core.yml 核心功能清单（R11 红线：功能不可缺、功能槽内实现可替换；任何核心 id 可经 slots 声明替代成员后替换）+ sources/ 导入件 | 登记引用为主；git/zip 导入件 trusted=false 需人工信任 |
 | `code/presets/i2stream-ops/` | 运维 agent preset 作者源（persona + 热路径） | 热路径块由脚本生成，禁止手改；apply 时内联进 profile patch 声明行（v0.1.7 声明式） |
@@ -79,6 +80,12 @@
 # self-test（在 /hdd/agent/deepseek-harness 下运行）
 node --import tsx/esm /hdd/demo/public/dsh-info/code/dsh-plugin/self-test.ts
 node --import tsx/esm /hdd/demo/public/dsh-info/code/ops-api/self-test.ts
+node --import tsx/esm /hdd/demo/public/dsh-info/code/intent-router/self-test.ts
+
+# 意图识别：标注集回归 / 门限扫描 / 意图体系重生成（都在 harness 下跑）
+node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/eval-intent.ts          # 不达标退出码 1
+node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/eval-intent.ts --sweep  # 门限最优点
+node --import tsx/esm /hdd/demo/public/dsh-info/code/scripts/gen-intent-taxonomy.ts  # BKN/Skill 变更后重生成
 
 # 计时与联调
 bash /hdd/demo/public/dsh-info/code/scripts/bench-tools.ts   # 工具层 <100ms/次
@@ -94,7 +101,7 @@ bash /hdd/demo/public/dsh-info/.dsh-home/run-ops.sh {start|stop|restart|status|l
 # dshctl（自带 tsx，任意目录可跑，无需 cd）
 dshctl check ops --ci
 dshctl plugin list   # 插件库一览（core 必须件 + extension）
-dshctl-selftest   # 或 bash /hdd/demo/public/dsh-info/code/dshctl/ci.sh（五环节一键）
+dshctl-selftest   # 或 bash /hdd/demo/public/dsh-info/code/dshctl/ci.sh（六环节一键）
 
 # embed sidecar
 HF_HOME=/hdd/demo/public/chunk/HuggingFace HF_HUB_OFFLINE=1 \

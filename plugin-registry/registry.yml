@@ -21,26 +21,26 @@ plugins:
     category: 知识网
     source: local
     external:
-    - key: qdrant
-      desc: 外部向量库 Qdrant（search_qdrant / diagnose_db_link 的 dense 检索）
-      config: qdrantUrl
-      env: I2STREAM_QDRANT_URL
-    - key: embed-sidecar
-      desc: BGE embedding sidecar（查询向量化）
-      config: embedUrl
-      env: I2STREAM_EMBED_URL
-    - key: bkn-data
-      desc: 共享 BKN 数据目录（全部查询工具的事实来源）
-      config: bknRoot
-      env: I2STREAM_BKN_ROOT
-    - key: skill-manifest
-      desc: Skill 清单（Skill 指针解析）
-      config: skillManifestPath
-      env: I2STREAM_SKILL_MANIFEST
-    - key: gap-log
-      desc: 质量闭环 gap 日志（可写目录）
-      config: gapLogPath
-      env: I2STREAM_GAP_LOG
+      - key: qdrant
+        desc: 外部向量库 Qdrant（search_qdrant / diagnose_db_link 的 dense 检索）
+        config: qdrantUrl
+        env: I2STREAM_QDRANT_URL
+      - key: embed-sidecar
+        desc: BGE embedding sidecar（查询向量化）
+        config: embedUrl
+        env: I2STREAM_EMBED_URL
+      - key: bkn-data
+        desc: 共享 BKN 数据目录（全部查询工具的事实来源）
+        config: bknRoot
+        env: I2STREAM_BKN_ROOT
+      - key: skill-manifest
+        desc: Skill 清单（Skill 指针解析）
+        config: skillManifestPath
+        env: I2STREAM_SKILL_MANIFEST
+      - key: gap-log
+        desc: 质量闭环 gap 日志（可写目录）
+        config: gapLogPath
+        env: I2STREAM_GAP_LOG
     path: /hdd/demo/public/dsh-info/code/dsh-plugin/index.ts
     trusted: true
     added_at: 2026-09-17
@@ -58,18 +58,18 @@ plugins:
     category: 对外 API
     source: local
     external:
-    - key: memory-gateway
-      desc: MemoryCore 记忆网关（recall / search / capture）
-      config: memory.gatewayUrl
-    - key: agent-preset
-      desc: 会话挂载的 agent preset
-      config: preset
-    - key: skills-dir
-      desc: /admin 技能启停的技能根目录
-      config: admin.skillsDir
-    - key: patch-path
-      desc: /admin 托管段读写的 profile patch 文件
-      config: admin.patchPath
+      - key: memory-gateway
+        desc: MemoryCore 记忆网关（recall / search / capture）
+        config: memory.gatewayUrl
+      - key: agent-preset
+        desc: 会话挂载的 agent preset
+        config: preset
+      - key: skills-dir
+        desc: /admin 技能启停的技能根目录
+        config: admin.skillsDir
+      - key: patch-path
+        desc: /admin 托管段读写的 profile patch 文件
+        config: admin.patchPath
     path: /hdd/demo/public/dsh-info/code/ops-api/index.ts
     trusted: true
     added_at: 2026-09-17
@@ -84,12 +84,33 @@ plugins:
     category: 技能管理
     source: local
     external:
-    - key: skills-dir
-      desc: 被管理技能根目录（写目标）
-      config: skillsDir
-    - key: upstream-dir
-      desc: 共享技能源（sync 只读拉取源）
-      config: upstreamDir
+      - key: skills-dir
+        desc: 被管理技能根目录（写目标）
+        config: skillsDir
+      - key: upstream-dir
+        desc: 共享技能源（sync 只读拉取源）
+        config: upstreamDir
     path: /hdd/demo/public/dsh-info/code/ops-skill-manager/index.ts
     trusted: true
     added_at: 2026-09-17
+  - id: intent-router
+    name: i2stream-intent-router
+    description: 分层意图识别。第 1 层正则/精确、第 2 层别名+BM25(+向量) 算法，两层高置信才把意图注入本步提示；不达门限完全不干预、交回主模型——意图识别不再一律走大模型，省掉探索性工具调用与试错轮次（零额外大模型调用）。
+    provides:
+      - 分层意图识别（正则/精确 → 别名+BM25+向量 → 门限）
+      - agent/pre-step 意图注入（mode=inject）
+      - 识别观测日志（识别 vs 主模型实际调用对照）
+    category: 意图路由
+    external:
+      - key: taxonomy
+        desc: 意图体系生成物（scripts/gen-intent-taxonomy.ts 重跑再生）
+        config: taxonomyPath
+      - key: embed-sidecar
+        desc: BGE embedding sidecar（层 2c 向量相似；不可达则退化为 BM25-only）
+        config: embedUrl
+        env: I2STREAM_EMBED_URL
+    tier: extension
+    source: local
+    path: /hdd/demo/public/dsh-info/code/intent-router/index.ts
+    trusted: true
+    added_at: 2026-10-08

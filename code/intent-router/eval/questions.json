@@ -1,0 +1,138 @@
+{
+  "schema": 1,
+  "updatedAt": "2026-10-08",
+  "note": "意图识别的标注集（门限标定与回归的依据）。mode=accept 表示本地应当识别出 expect；mode=reject 表示不应干预（交回主模型）。Q 只要来自现场真实问法，不要为了好看而改写。",
+  "sources": [
+    "code/scripts/bench-4q.sh 的四道基线问题",
+    "i2stream-bkn/plugin/skill_manifest.yaml 的 capability/load_criterion",
+    ".dsh-home/skills/*/SKILL.md 的 description/triggers",
+    "dsh-plugin/constants.ts 的口语别名表（SYMPTOM_ALIASES 等）"
+  ],
+  "cases": [
+    {
+      "q": "如何创建一条 Oracle 到 MySQL 的增量同步规则？",
+      "expect": "resolve_operation",
+      "mode": "accept"
+    },
+    {
+      "q": "增量同步卡住不动了，怎么排查？",
+      "expect": "diagnose_incremental_stuck",
+      "mode": "accept"
+    },
+    {
+      "q": "什么情况下禁止删除同步规则？",
+      "expect": "check_action_risk",
+      "mode": "accept"
+    },
+    {
+      "q": "YAS-01001 错误是什么原因？",
+      "expect": "diagnose_error",
+      "mode": "accept"
+    },
+    {
+      "q": "i2Stream 支持哪些数据库",
+      "expect": "query_product",
+      "mode": "accept"
+    },
+    {
+      "q": "Oracle 到 MySQL 支持吗",
+      "expect": "check_compatibility",
+      "mode": "accept"
+    },
+    {
+      "q": "创建规则需要什么前置条件",
+      "expect": "get_prerequisites",
+      "mode": "accept"
+    },
+    {
+      "q": "设计一个两地三中心方案",
+      "expect": "design_solution",
+      "mode": "accept"
+    },
+    {
+      "q": "增量同步的原理是什么",
+      "expect": "explain_architecture",
+      "mode": "accept"
+    },
+    {
+      "q": "有哪些同步场景",
+      "expect": "list_scenarios",
+      "mode": "accept"
+    },
+    {
+      "q": "生成建表语句",
+      "expect": "sql_generation",
+      "mode": "accept"
+    },
+    {
+      "q": "数据库连不上怎么办",
+      "expect": "diagnose_db_link",
+      "mode": "accept",
+      "note": "症状别名 Owner 是工具意图 diagnose_db_link（相邻意图少一个抢票者，间隔才够）"
+    },
+    {
+      "q": "同步卡住不动了",
+      "expect": "diagnose_incremental_stuck",
+      "mode": "accept",
+      "note": "层 2a 强别名（≥4 字口语）"
+    },
+    {
+      "q": "看下日志",
+      "expect": null,
+      "mode": "reject",
+      "note": "泛化口语：日志可能指向分析/诊断/调试多个意图，本地不该表态"
+    },
+    {
+      "q": "创建规则",
+      "expect": null,
+      "mode": "reject",
+      "note": "过短且语义含混（是操作指引还是前置条件？），margin 自然不足"
+    },
+    {
+      "q": "今天天气不错",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "随便说点什么",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "帮我看看这个需求能不能实现",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "这个多少钱",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "能不能便宜点",
+      "expect": null,
+      "mode": "reject",
+      "note": "模态问句：曾被「能不能」关键词误命中 check_action_risk，是关键词卫生的由来"
+    },
+    {
+      "q": "上周的会议纪要发我",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "帮我把这句话翻译成英文",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "数据库",
+      "expect": null,
+      "mode": "reject"
+    },
+    {
+      "q": "嗯",
+      "expect": null,
+      "mode": "reject"
+    }
+  ]
+}

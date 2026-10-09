@@ -101,6 +101,7 @@ profile 的 `cordis.patch.yml` 以 **id** 为键增删改插件行：
 | `bkn-plugin` | BKN 语义检索 12 工具 + RiskGuard 风险护栏（tools/pre-execute 策略） |
 | `ops-api` | 对外面：api-server + 会话桥 + 记忆接入 + supervisor |
 | `ops-skill-manager` | 技能自管理（skill_manage 工具 + usage 台账） |
+| `intent-router` | 分层意图识别（正则/精确 → 别名+BM25 → 高置信才注入提示；不达门限不干预，零额外大模型调用） |
 | `mcp-i2agent` | 远程受控执行面（i2agent MCP，:8090） |
 
 ---
@@ -222,6 +223,7 @@ dsh-info/
 │   ├── dsh-plugin/           # bkn-plugin 源码
 │   ├── ops-api/              # ops-api 源码
 │   ├── ops-skill-manager/    # 技能自管理插件源码
+│   ├── intent-router/        # 分层意图识别插件源码（含意图体系生成物与标注集）
 │   ├── presets/              # agent preset（persona + 热路径）
 │   ├── scripts/              # 运维脚本（run-ops-trial.sh / bench / smoke）
 │   └── sidecars/             # embed-server 等独立进程

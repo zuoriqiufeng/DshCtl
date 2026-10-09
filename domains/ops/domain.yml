@@ -31,6 +31,15 @@ plugins:
       staleAfterDays: 30
       archiveAfterDays: 90
       firstRunDelaySec: 120
+  - id: intent-router
+    path: /hdd/demo/public/dsh-info/code/intent-router/index.ts
+    config:
+      # inject：把高置信意图注入本步提示（v1 唯一的行为改动）。
+      # 观测数据见 .dsh-home/logs/intent-router.jsonl；若误识别率上升，退回 observe。
+      mode: inject
+      taxonomyPath: /hdd/demo/public/dsh-info/code/intent-router/taxonomy.generated.json
+      # useVector 默认 false：实测无可用工作点（详见插件 README「向量路径为何默认关闭」）
+      useVector: false
 api_server:
   port: 8643
   api_key_env: OPS_API_KEY
