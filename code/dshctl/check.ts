@@ -293,6 +293,9 @@ export function reconcileUpstream(spec: DomainSpec, packs: ReturnType<typeof loa
   const addedUncovered: string[] = []
   if (prevRoster) {
     const covered = new Set(entries.map((e) => e.id))
+    // 2026-10-21：domain 清单 plugins[].id 是实例自管插件（模型配置进清单后登记），视为已覆盖——
+    // 否则每次 dump-config 都会把它们当「上游新增未覆盖行」误报
+    for (const pl of spec.plugins ?? []) covered.add(pl.id)
     addedUncovered.push(...rosterIds.filter((id) => !prevRoster.includes(id) && !covered.has(id)))
     items.push(addedUncovered.length === 0
       ? { rule: 'R3', level: 'pass', msg: '无未评估的上游新增行' }

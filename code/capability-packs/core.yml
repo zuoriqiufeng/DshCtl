@@ -47,6 +47,14 @@ disable:
     - webserver
     - web-runtime
     - client-hmr
+    # 2026-10-21 R3：实例侧确认无消费者的行，统一禁用（瘦身边距；后续需要再放开）。
+    # remote-access 曾在此列——它是 remoteAccess 服务依赖源，禁用导致 gateway/session 等 6 组件 pending，已回退
+    - web-deepseek-api
+    - harness-dev-context
+    - ui-secret-mask
+    - ui-deepseek-model-label-1017
+    - working-directory
+    - tool-working-directory
   overrides:
     - id: connection
       inject: []

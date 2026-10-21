@@ -29,8 +29,11 @@
 # self-test（需 harness 的 tsx，cd 到 deepseek-harness 下运行）
 node --import tsx/esm ../code/dsh-plugin/self-test.ts
 node --import tsx/esm ../code/ops-api/self-test.ts
+node --import tsx/esm ../code/intent-router/self-test.ts
+node --import tsx/esm ../code/ops-skill-manager/self-test.ts
+node --import tsx/esm ../code/dshctl/self-test.ts
 
-# dshctl 五环节一键 CI（自带 tsx，任意目录可跑）
+# 七环节一键 CI（self-test ×5 + upgrade-check + check；自带 tsx，任意目录可跑）
 bash code/dshctl/ci.sh          # 或 dshctl-selftest
 
 # HTTP 契约与计时冒烟（需现网实例在跑）
