@@ -48,13 +48,13 @@ disable:
     - web-runtime
     - client-hmr
     # 2026-10-21 R3：实例侧确认无消费者的行，统一禁用（瘦身边距；后续需要再放开）。
-    # remote-access 曾在此列——它是 remoteAccess 服务依赖源，禁用导致 gateway/session 等 6 组件 pending，已回退
+    # 回退教训×2：remote-access 是 remoteAccess 服务源（禁用→gateway/session 等 6 组件 pending）；
+    # working-directory/tool-working-directory 是 tool-skill 的 workingDirectory 服务源（禁用→对话 500）。两者均已回退——
+    # 「id 像 UI 行」不等于「无服务消费者」，裁剪前必须 grep inject/静态依赖。
     - web-deepseek-api
     - harness-dev-context
     - ui-secret-mask
     - ui-deepseek-model-label-1017
-    - working-directory
-    - tool-working-directory
   overrides:
     - id: connection
       inject: []

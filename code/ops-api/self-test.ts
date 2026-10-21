@@ -500,6 +500,16 @@ async function test10Memory(): Promise<void> {
     }
     check('14.1a enabled+空 key 拒绝启动（fail-loud）', threw.includes('apiServer.enabled=true requires'), threw.slice(0, 80))
   }
+  // 2026-10-21：modelId 可选化——未设置不再 fail-loud（回显回退会话实际模型）
+  {
+    let threw = ''
+    try {
+      await apply(fakeCtx(), { preset: 'test-preset', apiServer: { enabled: true, host: '127.0.0.1', port: 1, apiKey: 'k' } })
+    } catch (e) {
+      threw = String(e)
+    }
+    check('14.1b 未设置 modelId 不再 fail-loud', !threw.includes('modelId is required'), threw.slice(0, 80))
+  }
   // 14.2 鉴权矩阵：health 免鉴权 / 无 key 401 / 错 key 401 / 对 key 200
   {
     const port = 18640 + (process.pid % 2000)

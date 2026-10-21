@@ -38,6 +38,8 @@ export interface TurnResult {
   usage: Usage
   finishReason: string
   attempts: number
+  /** 本回合会话实际使用的模型（request/header 事件提取；拿不到为 undefined）。 */
+  model?: string
 }
 
 export class TurnTimeoutError extends Error {
@@ -137,6 +139,8 @@ export async function runTurn(
   const buffers = new Map<string, string>()
   let finalText = ''
   let durableFallback = ''
+  // 2026-10-21：本回合会话实际路由的模型（request/header durable 事件携带 header.config.model）
+  let usedModel: string | undefined
   // 多轮防污染（armed 启发式）：resume 会话的 follow 开场快照含历史全部 durable 事件。
   // 旧回合的 assistant/message 文本不得计入本轮 durableFallback。
   // prompt 与 follow 同时在 runTurn 内部打开，prompt 提交后的第一帧必属本轮 → 首帧武装。
@@ -167,7 +171,12 @@ export async function runTurn(
       }
       if (frame?.type === 'event') {
         const et = frame.event?.type
-        if (et === 'assistant/message') {
+        if (et === 'request/header') {
+          // 会话本回合实际路由（provider/model）——未配置 modelId 时的真实回显来源
+          const hdr = (frame.event?.data as { header?: { config?: { model?: unknown } } } | undefined)?.header
+          const m = hdr?.config?.model
+          if (typeof m === 'string' && m) usedModel = m
+        } else if (et === 'assistant/message') {
           if (!armed) continue
           const text = extractMessageText(frame.event?.data)
           if (text) durableFallback = text
@@ -240,7 +249,7 @@ export async function runTurn(
   }
 
   const content = finalText
-  return { content, usage, finishReason: content ? 'stop' : 'abandoned', attempts, sessionId }
+  return { content, usage, finishReason: content ? 'stop' : 'abandoned', attempts, model: usedModel, sessionId }
 }
 
 function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal {

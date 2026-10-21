@@ -135,7 +135,9 @@ export const Config = Schema.object({
     healthDeps: Schema.array(Schema.object({ name: Schema.string(), url: Schema.string() })).default([]),
   }).default({ enabled: false, adminKey: '', patchPath: '', skillsDir: '', healthDeps: [] }),
   turnTimeoutSec: Schema.number().default(120),
-  /** /v1/models 与响应回显的模型名；无默认（领域必填，未配置启动时 fail-loud） */
+  /** /v1/models 与响应回显的模型名（可选）。设置 → 作为回显/清单名；
+   * 未设置 → 回显回合实际使用的会话模型（request/header 提取），都没有 → 'default'。
+   * 注意：模型**路由**由会话默认模型决定（profile patch agent-default-model，可经 domain.yml model 段设置），本字段不改变路由。 */
   modelId: Schema.string().default(''),
   /** 会话工作目录；空 = $DSH_HOME */
   cwd: Schema.string().default(''),
@@ -181,9 +183,9 @@ function sendJson(res: ServerResponse, code: number, body: unknown): void {
 }
 
 export function apply(ctx: Context, config: Config) {
-  // C3 整改：preset/modelId 无领域默认——未配置 fail-loud（领域实例必填）。
+  // C3 整改（2026-10-21 修订）：preset 仍 fail-loud；modelId 改可选——未配置回显会话实际模型。
   if (!config.preset) throw new Error('ops-api: config.preset is required (agent preset name)')
-  if (!config.modelId) throw new Error('ops-api: config.modelId is required (model id for /v1/models)')
+
   const cfg = {
     enabled: config.enabled ?? true,
     platform: config.platform ?? 'dsh-domain-agent',
@@ -356,6 +358,9 @@ export function apply(ctx: Context, config: Config) {
     },
   }))
 
+  /** 回显模型名：显式设置 > 会话实际路由 > 'default'（2026-10-21：modelId 可选化）。 */
+  const echoModel = (used?: string): string => cfg.modelId || used || 'default'
+
   // ── GET /v1/models ──
   disposers.push(mountRoute({
     kind: 'exact',
@@ -365,7 +370,7 @@ export function apply(ctx: Context, config: Config) {
         sendJson(res, 401, errorBody('Invalid gateway API key (API_SERVER_KEY)', 'gateway_auth_error'))
         return
       }
-      sendJson(res, 200, modelsBody(cfg.modelId))
+      sendJson(res, 200, modelsBody(cfg.modelId || 'default'))
     },
   }))
 
@@ -714,7 +719,7 @@ export function apply(ctx: Context, config: Config) {
       afterTurn(result.sessionId, result.content)
       res.setHeader('X-Ops-Session-Id', result.sessionId)
       if (renewed) res.setHeader('X-Ops-Session-Renewed', '1')
-      sendJson(res, 200, buildCompletion({ id, model: cfg.modelId, content: result.content, usage: result.usage, finishReason: result.finishReason }))
+      sendJson(res, 200, buildCompletion({ id, model: echoModel(result.model), content: result.content, usage: result.usage, finishReason: result.finishReason }))
       return
     }
 
@@ -731,11 +736,11 @@ export function apply(ctx: Context, config: Config) {
     try {
       const result = await runWithMemory(() => runTurn(driver, effectivePrompt, {
         preset: cfg.preset, cwd: cfg.cwd, sessionId, timeoutSec: cfg.turnTimeoutSec, signal: clientCtl.signal,
-        onDelta: (text) => write(buildChunk(id, cfg.modelId, { content: text })),
+        onDelta: (text) => write(buildChunk(id, echoModel(), { content: text })),
       }))
       resultSessionId = result.sessionId
       afterTurn(result.sessionId, result.content)
-      for (const chunk of buildFinalChunks(id, cfg.modelId, result.usage)) write(chunk)
+      for (const chunk of buildFinalChunks(id, echoModel(result.model), result.usage)) write(chunk)
       res.write('data: [DONE]\n\n')
     } catch (e) {
       const isTimeout = e && (e as Error).name === 'TurnTimeoutError'
@@ -763,7 +768,7 @@ export function apply(ctx: Context, config: Config) {
     return {
       platform: cfg.platform,
       version: cfg.version,
-      models: [{ id: cfg.modelId }],
+      models: [{ id: cfg.modelId || 'default' }],
       features: {
         'chat.completions': true,
         responses: true,
@@ -804,7 +809,7 @@ export function apply(ctx: Context, config: Config) {
     }
 
     const id = `resp_${completionId()}`
-    const model = parsed.model ?? cfg.modelId
+    const model = parsed.model ?? 'default' // 请求显式模型优先；未带时回合实际模型在 result.model（最终回显处统一）
     const promptText = buildPromptText(parsed.messages)
 
     // 复用 handleChat 的 session 续接逻辑（提取为 prepareSession）
@@ -881,7 +886,7 @@ export function apply(ctx: Context, config: Config) {
       memory.capture({ sessionKey: memoryKey, sessionId: result.sessionId, userContent: lastUserText, assistantContent: result.content })
     }
     res.setHeader('X-Ops-Session-Id', result.sessionId)
-    sendJson(res, 200, buildResponse({ id, model, text: result.content, usage: result.usage }))
+    sendJson(res, 200, buildResponse({ id, model: parsed.model ?? echoModel(result.model), text: result.content, usage: result.usage }))
     log.info(`[ops-api] responses turn done session=${result.sessionId}`)
   }
 
