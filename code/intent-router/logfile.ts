@@ -3,7 +3,7 @@
  *
  * 轮转语义 1:1 移植自共享 BKN 的 `/hdd/demo/public/i2stream-bkn/plugin/log_rotate.py`
  * （`day_file_path` / `rotate_day_file` / `_prune_old_days` / `iter_data_files`），
- * 其中"大小维度"复用 `code/dsh-plugin/supplement.ts` 的 `rotateIfNeeded`（同一 Python 函数的 TS 移植）。
+ * "大小维度"的 `rotateIfNeeded` 已内联本文件（2026-10-21 S1 自包含整改，源：code/dsh-plugin/supplement.ts）。
  *
  * 命名规则（与 BKN 一致）：
  *   <dir>/<stem>_YYYY-MM-DD.log        当日文件（文件名带日期，跨日自动开新文件）
@@ -18,9 +18,25 @@
  * 降级铁律：任何写失败/清理失败都静默（可选一次性回调），**绝不抛**——日志坏了不能让会话失败。
  */
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
-import { rotateIfNeeded } from '../dsh-plugin/supplement.ts'
+
+/** 大小轮转（1:1 dsh-plugin/supplement.rotateIfNeeded；2026-10-21 S1 内联副本，源变更需人工同步）。 */
+function rotateIfNeeded(path: string, maxBytes: number, backups: number): boolean {
+  try {
+    if (!existsSync(path) || statSync(path).size < maxBytes) return false
+    const oldest = `${path}.${backups}`
+    if (existsSync(oldest)) unlinkSync(oldest)
+    for (let i = backups - 1; i >= 1; i--) {
+      const src = `${path}.${i}`
+      if (existsSync(src)) renameSync(src, `${path}.${i + 1}`)
+    }
+    renameSync(path, `${path}.1`)
+    return true
+  } catch {
+    return false
+  }
+}
 
 // ─────────────────────────── 级别 ───────────────────────────
 

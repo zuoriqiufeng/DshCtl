@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { SYMPTOM_ALIASES, ERROR_ALIASES } from '../dsh-plugin/constants.ts'
+import { SYMPTOM_ALIASES, ERROR_ALIASES } from './aliases.ts'
 import { buildScorer, classify } from './engine.ts'
 import { isLikelyGreeting, lastUserText, normalizeText, stripSlashGesture } from './extract.ts'
 import { ERROR_CODE_RE, extractErrorCodes, layer1 } from './layer1.ts'
