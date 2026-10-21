@@ -164,7 +164,10 @@ export function formatDecision(entry: DecisionEntry, options: DecisionFormatOpti
   if (options.debug && entry.rank && entry.rank.length > 0) {
     parts.push(`rank=${entry.rank.map((r) => `${r.id}:${r.bm25 ?? '-'}${r.cos === undefined ? '' : `/${r.cos.toFixed(3)}`}`).join(',')}`)
   }
-  if (options.debug && entry.actualTools && entry.actualTools.length > 0) {
+  // 2026-10-21：对账行（reconcile/*）的 actual 提升到 info 级——「识别 vs 主模型实际调用对照」
+  // 是本插件的核心观测卖点，只在 debug 可见等于没有（plan §registry 声明过该能力）。
+  const isReconcile = entry.reason?.startsWith('reconcile/')
+  if (entry.actualTools && entry.actualTools.length > 0 && (options.debug || isReconcile)) {
     parts.push(`actual=${entry.actualTools.join(',')}`)
   }
   const shown = options.debug ? entry.text : truncate(entry.text, options.textMaxChars)

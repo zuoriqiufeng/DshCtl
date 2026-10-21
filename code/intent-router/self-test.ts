@@ -66,6 +66,19 @@ check('normalizeIntent 接受合法条目', normalizeIntent({ id: 'x', kind: 'to
   check('坏条目被跳过且计数正确', merged.intents.length === 1 && merged.skipped.length === 1,
     JSON.stringify(merged.skipped))
 }
+{
+  // 已知技能集过滤（2026-10-21 P0 修复回归：生产端此前传空 Set，skill 意图全量被滤）
+  const skillIntent = { id: 's1', kind: 'skill', target: 'known-skill', skills: ['known-skill', 'ghost-skill'] }
+  const kept = mergeTaxonomy({ intents: [skillIntent] }, undefined, new Set(['known-skill']))
+  check('knownSkills 命中：skill 意图保留且未知 skill 从列表剔除',
+    kept.intents.length === 1 && kept.intents[0]?.skills.includes('known-skill') && !kept.intents[0]?.skills.includes('ghost-skill'),
+    JSON.stringify(kept))
+  const dropped = mergeTaxonomy({ intents: [skillIntent] }, undefined, new Set(['other-skill']))
+  check('knownSkills 未命中：skills 列表被清空（意图保留，注入文案退化为不带 Skill 指针）',
+    dropped.intents.length === 1 && dropped.intents[0]?.skills.length === 0, JSON.stringify(dropped.intents[0]?.skills))
+  const noFilter = mergeTaxonomy({ intents: [skillIntent] }, undefined, undefined)
+  check('knownSkills=undefined（self-test/eval 惯例）：不过滤', noFilter.intents.length === 1, JSON.stringify(noFilter.skipped))
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[2] extract：用户消息抽取与归一化')

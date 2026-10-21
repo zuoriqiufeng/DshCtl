@@ -24,7 +24,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { ERROR_ALIASES, SYMPTOM_ALIASES } from '../dsh-plugin/constants.ts'
 import { classify, buildScorer, type EngineDeps, type VectorProvider } from './engine.ts'
@@ -114,6 +114,7 @@ export const Config: Schema<Config> = Schema.object({
   logTextMaxChars: Schema.natural().default(200).description('info 级原文截断长度，0=不截断'),
   injectTemplate: Schema.string().description('注入文案模板'),
   errorToolTarget: Schema.string().default('diagnose_error').description('错误码规则的落点工具'),
+  skillsDir: Schema.string().description('已知 Skill 目录（目录名 = 已知技能集；缺省 $DSH_HOME/skills，C1 整改后的唯一权威目录）。skill 类意图的 skills 列表按该集合过滤，防止注入指向不存在的 Skill'),
 })
 
 interface Resolved {
@@ -132,6 +133,7 @@ interface Resolved {
   logTextMaxChars: number
   injectTemplate?: string
   errorToolTarget: string
+  skillsDir: string
 }
 
 function resolveConfig(config: Config | undefined): Resolved {
@@ -160,6 +162,7 @@ function resolveConfig(config: Config | undefined): Resolved {
     logTextMaxChars: config?.logTextMaxChars ?? 200,
     ...(config?.injectTemplate ? { injectTemplate: config.injectTemplate } : {}),
     errorToolTarget: config?.errorToolTarget?.trim() || 'diagnose_error',
+    skillsDir: config?.skillsDir?.trim() || join(dshHome, 'skills'),
   }
 }
 
@@ -224,12 +227,23 @@ export function apply(ctx: Context, config?: Config): void {
   })
   const log = dualLogger(harness, file)
 
+  // 已知技能集（2026-10-21 修复 P0：生产加载此前传空 Set，skill 类意图被全量过滤——
+  // self-test/eval 传 undefined 所以测不出）。目录名 = 已知技能；缺目录/空目录 fail-soft（warn + 空 Set，
+  // 行为退化为旧行为：skill 意图跳过并计数）。
+  const knownSkills = new Set<string>()
+  try {
+    for (const name of readdirSync(cfg.skillsDir, { withFileTypes: true })) {
+      if (name.isDirectory()) knownSkills.add(name.name)
+    }
+  } catch (error) {
+    log.warn('[intent-router] 已知技能目录不可读（%s）：%s——skill 类意图将被跳过', cfg.skillsDir, String(error))
+  }
   let intents: IntentDef[]
   try {
-    const loaded = loadIntents(cfg.taxonomyPath, new Set())
+    const loaded = loadIntents(cfg.taxonomyPath, knownSkills)
     intents = loaded.intents
-    log.info('[intent-router] 意图体系已加载：%d 条（跳过 %d），mode=%s',
-      intents.length, loaded.skipped, cfg.mode)
+    log.info('[intent-router] 意图体系已加载：%d 条（跳过 %d，其中 skill 目录过滤见 skipped 明细），knownSkills=%d，mode=%s',
+      intents.length, loaded.skipped, knownSkills.size, cfg.mode)
   } catch (error) {
     log.error('[intent-router] 意图体系加载失败，插件不生效：%s', String(error))
     return
@@ -261,10 +275,15 @@ export function apply(ctx: Context, config?: Config): void {
     provider.warmup()
   }
 
-  // 每个会话只记最后一次注入的 turn（O(1)、按会话数增长，不随回合累积）
-  const lastInjected = new Map<string, number>()
-  // 本回合主模型实际调用了哪些工具（用于 observe 模式的「识别 vs 实际」对照）
-  const actualTools = new Map<string, string[]>()
+  // 观测闭环（2026-10-21 修复 P1：原 lastInjected/actualTools 永不清理（长跑泄漏）、
+  // observe 分支不记 actualTools、注入分支对账用的是上一回合的旧桶）。
+  // pending：agentId → 本回合决策上下文 + 该回合实际调用工具集；下一回合 pre-step 时
+  // 对账落日志（intent/target vs actualTools）后清除；agent/disposed 时清除（不泄漏）。
+  const pending = new Map<string, {
+    turn: number; text: string; accepted: boolean; reason: string
+    intent: string; target: string; kind: string; tier: string; rule: string
+    injected: boolean; tools: Set<string>
+  }>()
 
   ctx.on('tools/result', (exec) => {
     try {
@@ -272,11 +291,18 @@ export function apply(ctx: Context, config?: Config): void {
       if (typeof agentId !== 'string') return
       const toolName = (exec as { name?: string }).name
       if (typeof toolName !== 'string' || toolName === '') return
-      const bucket = actualTools.get(agentId) ?? []
-      if (!bucket.includes(toolName)) bucket.push(toolName)
-      actualTools.set(agentId, bucket)
+      pending.get(agentId)?.tools.add(toolName)
     } catch {
       /* 观测失败静默 */
+    }
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => {
+    try {
+      const agentId = String((agent as { id?: unknown }).id ?? '')
+      if (agentId) pending.delete(agentId)
+    } catch {
+      /* 清理失败静默 */
     }
   })
 
@@ -291,6 +317,19 @@ export function apply(ctx: Context, config?: Config): void {
       signal.throwIfAborted()
 
       const agentId = String((agent as { id?: unknown }).id ?? '')
+
+      // 对账：上一回合的 pending 落日志后清除（识别 intent/target vs 实际调用工具）。
+      const prev = pending.get(agentId)
+      if (prev && prev.turn !== turn) {
+        file.decision({
+          turn: prev.turn, sid: agentId, mode: cfg.mode, text: prev.text,
+          accepted: prev.accepted, reason: 'reconcile/' + prev.reason,
+          intent: prev.intent, target: prev.target, kind: prev.kind,
+          tier: prev.tier, rule: prev.rule, slots: {}, ms: 0, rank: [],
+          injected: prev.injected, actualTools: [...prev.tools],
+        })
+        pending.delete(agentId)
+      }
       const entry: DecisionEntry = {
         turn,
         sid: agentId,
@@ -312,7 +351,17 @@ export function apply(ctx: Context, config?: Config): void {
         })),
       }
 
-      if (!result.accepted || !result.intent || !result.intent.injectable) {
+      const accepted = result.accepted && !!result.intent && result.intent.injectable
+      // 观测：本回合决策入 pending（observe 与 inject 同样记录——tools/result 持续累加，
+      // 下一回合 pre-step 对账落日志；dispose 时清除）。
+      pending.set(agentId, {
+        turn, text, accepted, reason: result.reason,
+        intent: result.intent?.id ?? '', target: result.intent?.target ?? '',
+        kind: result.intent?.kind ?? '', tier: result.tier ?? '', rule: result.hit?.rule ?? '',
+        injected: false, tools: new Set(),
+      })
+
+      if (!accepted) {
         file.decision(entry)
         return decision
       }
@@ -322,8 +371,7 @@ export function apply(ctx: Context, config?: Config): void {
       }
 
       // 去重：同一回合只注入一次
-      const seenTurn = lastInjected.get(agentId)
-      if (seenTurn === turn) {
+      if (pending.get(agentId)?.turn === turn && pending.get(agentId)?.injected) {
         file.decision({ ...entry, injected: false, reason: 'already-injected' })
         return decision
       }
@@ -333,9 +381,9 @@ export function apply(ctx: Context, config?: Config): void {
         content: [{ type: 'text', text: textToInject }],
         source: { kind: 'intent-router', intent: result.intent.id, tier: result.tier ?? '', rule: result.hit?.rule ?? '' },
       })
-      lastInjected.set(agentId, turn)
-      file.decision({ ...entry, injected: true, actualTools: actualTools.get(agentId) ?? [] })
-      actualTools.delete(agentId)
+      const p = pending.get(agentId)
+      if (p) p.injected = true
+      file.decision({ ...entry, injected: true })
       return { ...decision, messages: [...decision.messages, injection] }
     } catch (error) {
       // 降级铁律：意图识别是加速路径，任何失败都不影响会话

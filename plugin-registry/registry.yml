@@ -99,7 +99,7 @@ plugins:
     provides:
       - 分层意图识别（正则/精确 → 别名+BM25+向量 → 门限）
       - agent/pre-step 意图注入（mode=inject）
-      - 识别观测日志（识别 vs 主模型实际调用对照）
+      - 识别观测日志（识别 vs 主模型实际调用对照：reconcile 行 info 级输出 actual=工具名列表，2026-10-21 实装）
     category: 意图路由
     external:
       - key: taxonomy
