@@ -26,6 +26,14 @@ export interface DomainSpec {
     plugin_id?: string
   }
   memory?: { gateway_url?: string; session_keys?: string[] }
+  /** 模型配置（v0.4.1）：apply 生成 profile patch override 行（llm-pi-ai providers + agent-default-model）。
+   *  根治「settings.yaml 导入段落被 apply 冲掉 → 默认路由 deepseek-official → MISSING_CREDENTIAL」。
+   *  密钥只记 env 名（apiKeyEnv），env 值经 .credentials.yaml refs 解析。 */
+  model?: {
+    default?: { provider: string; model: string }
+    /** llm-pi-ai providers（值与 settings 段同形；apiKeyEnv 必须是 env 名，R8 口径） */
+    providers?: Record<string, { displayName?: string; apiKeyEnv?: string; api?: string; baseURL?: string; models?: Array<{ id: string; name?: string }> }>
+  }
   ports?: { gui?: number | null; api?: number }
   systemd_unit?: string
   shared_deps?: Array<{ name: string; url: string }>
@@ -63,6 +71,16 @@ export function parseDomain(path: string): { spec: DomainSpec | null; errors: st
   // R8
   if (api?.api_key_env && !ENV_NAME_RE.test(api.api_key_env)) {
     errors.push(`R8: api_key_env '${api.api_key_env}' 不是环境变量名`)
+  }
+  // R8（model 段）：apiKeyEnv 只记 env 名；default 选择非空
+  for (const [name, p] of Object.entries(spec.model?.providers ?? {})) {
+    if (p.apiKeyEnv !== undefined && !ENV_NAME_RE.test(p.apiKeyEnv)) {
+      errors.push(`R8: model.providers.${name}.apiKeyEnv '${p.apiKeyEnv}' 不是环境变量名（密钥只记 env 名）`)
+    }
+  }
+  const md = spec.model?.default
+  if (md && (!md.provider?.trim() || !md.model?.trim())) {
+    errors.push('model.default: provider/model 均必填（声明了 default 就要完整）')
   }
   return { spec, errors }
 }

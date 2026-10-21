@@ -51,6 +51,32 @@ api_server:
   max_task_duration_sec: 120
   plugin_path: /hdd/demo/public/dsh-info/code/ops-api/index.ts
   plugin_id: ops-api
+# 模型配置（v0.4.1）：apply 生成 profile patch 的 override 行（id: llm-pi-ai / agent-default-model），
+# 根治「settings.yaml 导入段落被 apply 整体重写冲掉 → 默认路由 deepseek-official → MISSING_CREDENTIAL」。
+# 密钥只记 env 名（apiKeyEnv），env 值经 $DSH_HOME/.credentials.yaml refs 解析（不落明文）。
+model:
+  default:
+    provider: mimo-x
+    model: mimo-x-flash-preview
+  providers:
+    huoshan:
+      displayName: 方舟
+      apiKeyEnv: HUOSHAN_API_KEY
+      api: openai-completions
+      baseURL: https://ark.cn-beijing.volces.com/api/coding/v3
+      models:
+        - id: deepseek-v4-flash
+          name: v4flash
+    mimo-x:
+      displayName: mimo-x
+      apiKeyEnv: MIMO_X_API_KEY
+      api: openai-completions
+      baseURL: http://192.168.34.65:60080/v1
+      models:
+        - id: mimo-x-flash-preview
+          name: mimo-x-flash-preview
+        - id: mimo-x-pro-preview
+          name: mimo-x-pro-preview
 memory:
   gateway_url: http://127.0.0.1:8420
   session_keys: []

@@ -175,6 +175,22 @@ export function renderProfilePatch(spec: DomainSpec, preset?: PresetDecl, plugin
   lines.push('- id: agent-preset-registry')
   lines.push('  config:')
   lines.push(`    default: ${presetId}`)
+  // 模型配置 override 行（v0.4.1）：非 insert（覆盖 base bundle 的 llm-pi-ai / agent-default-model 条目）。
+  // 每次 apply 重新生成（幂等）——根治 settings.yaml 导入段落被 apply 冲掉后回落 deepseek-official 的问题。
+  // 密钥只记 env 名（apiKeyEnv），值经 .credentials.yaml refs 解析；未声明 model 段的领域完全不受影响。
+  const model = spec.model
+  if (model?.providers && Object.keys(model.providers).length) {
+    lines.push('- id: llm-pi-ai')
+    lines.push('  config:')
+    lines.push('    providers:')
+    for (const l of dumpYaml(model.providers).trimEnd().split('\n')) lines.push('      ' + l)
+  }
+  if (model?.default?.provider && model.default.model) {
+    lines.push('- id: agent-default-model')
+    lines.push('  config:')
+    lines.push(`    provider: ${model.default.provider}`)
+    lines.push(`    model: ${model.default.model}`)
+  }
   lines.push('# >>> OPS-ADMIN MANAGED >>>   （/admin 托管写入区——标记区外请勿手工增删 insert 行）')
   lines.push('# <<< OPS-ADMIN MANAGED <<<')
   return { content: lines.join('\n') + '\n' }

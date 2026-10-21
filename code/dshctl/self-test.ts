@@ -848,6 +848,17 @@ console.log('\n[15] v0.4 体验层：domain new 骨架 / 上下文推断 / 空 i
   writeFileSync(join(badDir, 'agent.cordis.yml'), 'plugins: []\n')
   check('preset.ts：非行列表 → error', !!loadPresetDeclaration(badDir, 'p15').error)
   check('preset.ts：作者源缺失 → error', !!loadPresetDeclaration(join(fixture(), 'no-such-preset'), 'p15').error)
+
+  // ⑥ 模型配置 override 行（v0.4.1）：settings 导入段落被 apply 冲掉的根治——声明进 domain.yml
+  const withModel = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null },
+    model: { default: { provider: 'mimo-x', model: 'mimo-x-flash-preview' }, providers: { 'mimo-x': { displayName: 'mimo-x', apiKeyEnv: 'MIMO_X_API_KEY', api: 'openai-completions', baseURL: 'http://gw/v1', models: [{ id: 'mimo-x-flash-preview', name: 'mimo-x-flash-preview' }] } } } } as never, decl15)
+  check('patch：model 段 → llm-pi-ai/agent-default-model override 行（非 insert）',
+    !withModel.error && withModel.content.includes('- id: llm-pi-ai\n  config:\n    providers:')
+    && withModel.content.includes('apiKeyEnv: MIMO_X_API_KEY')
+    && withModel.content.includes('- id: agent-default-model\n  config:\n    provider: mimo-x\n    model: mimo-x-flash-preview'))
+  check('patch：model override 行不含 !!js 失真（env 名直出）', !withModel.content.includes("process.env.MIMO_X_API_KEY"))
+  const noModel = renderProfilePatch({ schema: 1, domain: 'minimal', dsh_home: '/h', dsh_source: '/s', capabilities: [], preset: { source: p15 }, ports: { api: 8644, gui: null } }, decl15)
+  check('patch：未声明 model 段 → 不输出模型行（其他领域不受影响）', !noModel.content.includes('llm-pi-ai') && !noModel.content.includes('agent-default-model\n  config'))
 }
 
 // footer
