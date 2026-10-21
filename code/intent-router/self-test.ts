@@ -241,15 +241,23 @@ console.log('\n[5] engine：端到端分类')
   const decision = await classify('什么情况下禁止删除同步规则？', { ...DEPS, vector: counting })
   check('BM25 有定论时不调用向量（顺序补救）', decision.accepted && decision.tier === 'algo' && calls === 0, `calls=${calls}`)
 
+  // 2026-10-21：'数据库连不上怎么办' 已走 overrides.appendExact（tier=rule，零向量调用）——
+  // 原本它是 eval 唯一 miss（margin 0.062 < 0.35 被拒）。向量回退改用未进 exact 的变体语料验证。
   let calls2 = 0
   const counting2 = { score: async () => { calls2++; return { scores: new Map<string, number>(), available: false } } }
   const decision2 = await classify('数据库连不上怎么办', { ...DEPS, vector: counting2 })
-  check('BM25 判不出时才调用向量', calls2 === 1, `calls=${calls2} accepted=${decision2.accepted}`)
-
+  check('exact 通道命中不调用向量（overrides.appendExact）',
+    calls2 === 0 && decision2.accepted && decision2.tier === 'rule' && decision2.intent?.id === 'diagnose_db_link',
+    `calls=${calls2} tier=${decision2.tier} intent=${decision2.intent?.id}`)
   let calls3 = 0
   const counting3 = { score: async () => { calls3++; return { scores: new Map<string, number>(), available: false } } }
-  await classify('嗯', { ...DEPS, vector: counting3 })
-  check('BM25 零重叠（no-overlap）时也跳过向量', calls3 === 0, `calls=${calls3}`)
+  await classify('连不上数据库了怎么办', { ...DEPS, vector: counting3 })
+  check('BM25 判不出时才调用向量', calls3 === 1, `calls=${calls3}`)
+
+  let calls4 = 0
+  const counting4 = { score: async () => { calls4++; return { scores: new Map<string, number>(), available: false } } }
+  await classify('嗯', { ...DEPS, vector: counting4 })
+  check('BM25 零重叠（no-overlap）时也跳过向量', calls4 === 0, `calls=${calls4}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

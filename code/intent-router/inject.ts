@@ -22,7 +22,10 @@ function renderSlots(slots: Record<string, string>): string {
 }
 
 function adviceOf(intent: IntentDef, hit: Hit): string {
-  const skills = intent.skills.length > 0 ? `；如需要可加载 Skill ${intent.skills.join('、')}` : ''
+  // kind=skill 时 target 已是 Skill 指针，skills 列表再罗列会重复（P2 评审：去重）；
+  // kind=tool/none 时过滤掉与 target 相同的条目
+  const extraSkills = intent.skills.filter((s) => intent.kind === 'skill' || s !== intent.target)
+  const skills = extraSkills.length > 0 ? `；如需要可加载 Skill ${extraSkills.join('、')}` : ''
   if (intent.kind === 'skill') {
     return `建议先加载 Skill ${intent.target ?? ''}，按其流程作答${skills}。`
   }

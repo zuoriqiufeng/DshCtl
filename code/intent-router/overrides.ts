@@ -28,4 +28,11 @@ export const OVERRIDES: TaxonomyOverrides = {
     diagnose_error: ['报错', '什么错'],
     diagnose_db_link: ['链路'],
   },
+
+  appendExact: {
+    // 2026-10-21：eval 唯一 miss（92.3%）——「数据库连不上怎么办」BM25 分 30.49 vs
+    // diagnose_data_mismatch 28.59，相对间隔 0.062 < 0.35 门限被拒。现场高频口语走
+    // exact 通道（tier=rule 秒中，不占 BM25 间隔预算）。
+    diagnose_db_link: ['数据库连不上', '数据库连接不上'],
+  },
 }

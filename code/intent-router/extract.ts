@@ -74,7 +74,9 @@ export function isLikelyGreeting(normalized: string): boolean {
   return GREETING.test(normalized)
 }
 
-/** 去掉 `/skill-name` 手势后的正文：手势由上游 tool-skill 处理，本插件不重复接管。 */
+/** 去掉 `/skill-name` 手势后的正文：手势由上游 tool-skill 处理，本插件不重复接管。
+ *  2026-10-21：只剥**行首**手势——行中的 `/` 是路径语义（/var/log/messages、/hdd/...），
+ *  旧的全局剥离会把「/var/log/messages 报错」误伤成「var/log/messages」再吞成「log/messages」。 */
 export function stripSlashGesture(normalized: string): string {
-  return normalized.replace(/(^|\s)\/[a-z0-9][a-z0-9-]*/gi, ' ').replace(/\s+/g, ' ').trim()
+  return normalized.replace(/^\s*\/[a-z0-9][a-z0-9-]*/i, '').replace(/\s+/g, ' ').trim()
 }
