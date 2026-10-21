@@ -558,7 +558,10 @@ export function guardDecision(
   const blockable = check.blockable === true
   const reason = `[RiskGuard:${check.ruleId}] ${check.blockReason}`
   if (!opts.block || !blockable) {
-    console.warn(`[bkn-plugin] RiskGuard(${opts.block && !blockable ? 'advisory' : 'gray'}) would block: tool=${toolName} action=${action} state=${state} rule=${check.ruleId} blockable=${blockable}`)
+    // 2026-10-21 对齐 BKN B4 guard_shadow 口径：blockable 且未 enforced = 「本该拦却放行」实录（可检索 shadow）；
+    // blockable=false 的命中是设计内 advisory，不算 shadow
+    const kind = opts.block && !blockable ? 'shadow' : opts.block ? 'advisory' : 'gray'
+    console.warn(`[bkn-plugin] RiskGuard(${kind}) would block: tool=${toolName} action=${action} state=${state} rule=${check.ruleId} blockable=${blockable}`)
     return null
   }
   console.warn(`[bkn-plugin] RiskGuard blocked: tool=${toolName} action=${action} state=${state} rule=${check.ruleId}`)

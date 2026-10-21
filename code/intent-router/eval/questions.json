@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updatedAt": "2026-10-08",
-  "note": "意图识别的标注集（门限标定与回归的依据）。mode=accept 表示本地应当识别出 expect；mode=reject 表示不应干预（交回主模型）。Q 只要来自现场真实问法，不要为了好看而改写。",
+  "updatedAt": "2026-10-21",
+  "note": "意图识别的标注集（门限标定与回归的依据）。mode=accept 表示本地应当识别出 expect；mode=reject 表示不应干预（交回主模型）。Q 只要来自现场真实问法，不要为了好看而改写。 2026-10-21 扩充：+12（新意图覆盖/口语变体/边界拒绝）。",
   "sources": [
     "code/scripts/bench-4q.sh 的四道基线问题",
     "i2stream-bkn/plugin/skill_manifest.yaml 的 capability/load_criterion",
@@ -133,6 +133,78 @@
       "q": "嗯",
       "expect": null,
       "mode": "reject"
+    },
+    {
+      "q": "源端和目标端数据对不上了，两边记录数差很多",
+      "expect": "diagnose_data_mismatch",
+      "mode": "accept",
+      "note": "数据不一致口语变体"
+    },
+    {
+      "q": "OBLOGPROXY 反复重启崩溃，起不来",
+      "expect": "diagnose_crash_loop",
+      "mode": "accept",
+      "note": "崩溃循环"
+    },
+    {
+      "q": "同步延迟越来越高，性能很差怎么优化",
+      "expect": "diagnose_performance_degradation",
+      "mode": "accept",
+      "note": "性能劣化"
+    },
+    {
+      "q": "license 快到期了，到期后还能用吗",
+      "expect": "license_query",
+      "mode": "accept",
+      "note": "许可查询"
+    },
+    {
+      "q": "部署前需要检查哪些系统参数",
+      "expect": "env_validation",
+      "mode": "accept",
+      "note": "环境校验"
+    },
+    {
+      "q": "现在这套集群的拓扑结构是什么样的",
+      "expect": "topology_view",
+      "mode": "accept",
+      "note": "拓扑查看"
+    },
+    {
+      "q": "OMS 和 i2Stream 是什么关系",
+      "expect": "resolve_relation",
+      "mode": "accept",
+      "note": "关系问答"
+    },
+    {
+      "q": "哪些日志能看出同步异常",
+      "expect": null,
+      "mode": "reject",
+      "note": "泛问无明确动作词（边界）"
+    },
+    {
+      "q": "把这个规则停掉",
+      "expect": "check_action_risk",
+      "mode": "accept",
+      "note": "祈使句命中动作约束注入合理（停止规则须 STOPPED 前置）——原标 reject 系标注设计错误"
+    },
+    {
+      "q": "MySQL 的 utf8mb4 和 utf8 有什么区别",
+      "expect": null,
+      "mode": "reject",
+      "note": "通用数据库知识（非 i2Stream 域）"
+    },
+    {
+      "q": "增量同步卡住了，-4071 报错是什么意思",
+      "expect": "diagnose_error",
+      "mode": "accept",
+      "note": "问句主体是 -4071 含义，注入错误诊断指引正确——原标 reject 系标注设计错误"
+    },
+    {
+      "q": "怎么把同步规则删掉重新建",
+      "expect": "resolve_operation",
+      "mode": "accept",
+      "note": "生命周期操作变体"
     }
   ]
 }

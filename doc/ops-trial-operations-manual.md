@@ -41,6 +41,10 @@ journalctl -u dsh-ops-trial -f          # 实时日志（GUI token 也在日志�
 | 技能启停 | /admin 页面 或 /admin/api/skills/<name>/enable|disable | 新会话生效 |
 | api-server key/端口 | $DSH_HOME/profiles/ops/cordis.patch.yml ops-api.apiServer 段 | restart |
 | 模型配置 | $DSH_HOME/settings.yaml / .credentials.yaml | restart |
+
+**会话默认模型（2026-10-21 起）**：domain 不再钉死 default（mimo 网关失效教训）——未配置即走 DSH 会话默认模型。若对话出现 200 空 + 会话日志 `no API key for provider route "deepseek-official"`，说明会话默认路由无 key，两种修法：
+1. `$DSH_HOME/.credentials.yaml` 给对应 provider 补 key（只写 env 名 refs，不落明文）后 restart；
+2. 或在 `domains/ops/domain.yml` 的 `model.default` 配一行指向已验证可用的 provider（如 huoshan/deepseek-v4-flash，key HUOSHAN_API_KEY 已在 credentials refs），`dshctl apply ops --yes` + restart 即钉回。
 | preset 组合 | `code/presets/i2stream-ops/agent.cordis.yml`（作者源）→ `dshctl apply ops --yes` 内联进 profile patch 声明行 | restart |
 
 托管段约定：profile cordis.patch.yml 内 `# >>> OPS-ADMIN MANAGED >>>` … `# <<< OPS-ADMIN MANAGED <<<` 标记区由 /admin 独占；手工改动标记区内容会让 revision 变化，/admin 侧下次写入自动读新 revision，无需干预。**标记区外的内容不要手工增删 insert 行**——那是编排层（E1 移植的三段 insert）的地盘。

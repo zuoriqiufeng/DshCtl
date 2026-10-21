@@ -284,4 +284,11 @@ ops-admin.ts（新插件，可并入 ops-api 代码目录）以 BEGIN/END OPS-AD
   - **模型**：mimo 网关通道整体失效（/v1/models 空、两模型 503，绕过 DSH 直连证实）。按「模型可配置、未配置走 DSH 会话默认」的既定语义，**解除 domain.yml 的 default 钉死**（providers 仅声明备忘：huoshan/deepseek-v4-flash 已实测可用，需要时配 default 即切回）；apply 不再生成 agent-default-model 覆写行。**代价如实记录**：会话默认路由 deepseek-official 无 API key → 对话 MISSING_CREDENTIAL 空答案，需在 GUI/settings 侧配置会话默认模型（或配 domain.model.default）后恢复。
   - **BKN 跟随（只读，不改 BKN 仓）**：BKN 去装饰收敛后规范件无「N号」世代标记 → bknContract 增加发布清单锚：根目录 bkn-version.json（version_id + 44 文件 sha256）存在即视为世代满足 MIN，并逐文件哈希校验（数据被改/缺失即刻发现；缺失回退旧标记逻辑双向兼容）；mechanism_causality 新关系纳入「有则校验」口径。py get_risk 签名与输出键与 TS RiskInfo 已比对一致，resolver.ts 无需改动。篡改检测双向自测通过；dsh-plugin self-test +2 用例。
   - **清理**：domains/.cache 移除 3 个旧版本 dump-config（仅留 rc.2）；BKN 仓 430 文件未提交状态**不属于本项目管辖**（上游共享仓，只读消费），不代为提交。
+- 2026-10-21 **按高低清序跟进批次**：
+  - **py 新逻辑深挖结论**：resolver.py/risk_guard.py 新增函数（state_index_for、_note_file、_track_guard_shadow、_emit_assembly_event 等）全部是 BKN 仓自身观测埋点（ontology_read/track）与 lint 工具，不改变 get_risk 等输出——TS 侧无需镜像；RiskGuard「本该拦却放行」日志按 B4 口径单独标注 shadow（riskGuard.ts）。
+  - **classify 等价性抽样**：8 组输入（现场文本 5 + 官方含义 3）py 与 TS 逐条一致（rule/dimension 全同）——errorSemantics 移植面确认稳定。
+  - **新本体消费结论**：mechanism_causality 机制集当前为空（映射规则留空是设计状态），无可消费实例——不加空跑代码；兼容性已由契约校验 + 图遍历自测证明。
+  - **eval 扩充**：24→36 例（新意图覆盖 6 + 口语变体 + 边界拒绝）；修正 2 条自设标注错误（祈使句动作约束注入、错误码提问注入均为合理行为）；终态 87.0% 覆盖 · 0 错判 · 0 误采纳 PASSED。
+  - **manual**：补「会话默认模型」配置操作（MISSING_CREDENTIAL 两种修法）。
+  - **仍搁置**：会话默认模型未配置（用户裁定先不管，对话端到端/bench-4q 阻塞于此）；向量层（层 2c）embed sidecar 旧遗留。
 - （实施后逐阶段回填）
