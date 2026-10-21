@@ -280,4 +280,8 @@ ops-admin.ts（新插件，可并入 ops-api 代码目录）以 BEGIN/END OPS-AD
   - **阶段5（P1-8 自包含）**：bm25 实现/别名表/rotateIfNeeded 内联进 intent-router（文件头双侧同步纪律；内联漏 import renameSync 一处已修）；`dshctl plugin pack intent-router` 产物无跨插件引用。
   - **阶段6（P2）**：ci.sh 扩到 7 环节（+ops-skill-manager）；README 快速验证补四插件；R3 七行禁用进 core.yml（**remote-access 回退教训：它是 remoteAccess 服务依赖源，禁用 → gateway/session 等 6 组件 pending**，已在 core.yml 注释留痕）；check/upgrade-check 把 domain 清单 plugins[].id 视为已覆盖；/admin 启用（admin.enabled + OPS_ADMIN_KEY，页面 200 + API 鉴权正常）。
   - **外部阻塞（既有）**：模型网关 192.168.34.65:60080 对 mimo-x-flash-preview/pro 持续 503 model_not_found（vip 分组无通道，绕过 DSH 直连验证相同）——bench-4q 4 题均 200 空 + abandoned，如实记录，网关恢复后需补测。
+- 2026-10-21 **BKN 大改跟随 + 模型解钉批次**（7b878b2 后续）：
+  - **模型**：mimo 网关通道整体失效（/v1/models 空、两模型 503，绕过 DSH 直连证实）。按「模型可配置、未配置走 DSH 会话默认」的既定语义，**解除 domain.yml 的 default 钉死**（providers 仅声明备忘：huoshan/deepseek-v4-flash 已实测可用，需要时配 default 即切回）；apply 不再生成 agent-default-model 覆写行。**代价如实记录**：会话默认路由 deepseek-official 无 API key → 对话 MISSING_CREDENTIAL 空答案，需在 GUI/settings 侧配置会话默认模型（或配 domain.model.default）后恢复。
+  - **BKN 跟随（只读，不改 BKN 仓）**：BKN 去装饰收敛后规范件无「N号」世代标记 → bknContract 增加发布清单锚：根目录 bkn-version.json（version_id + 44 文件 sha256）存在即视为世代满足 MIN，并逐文件哈希校验（数据被改/缺失即刻发现；缺失回退旧标记逻辑双向兼容）；mechanism_causality 新关系纳入「有则校验」口径。py get_risk 签名与输出键与 TS RiskInfo 已比对一致，resolver.ts 无需改动。篡改检测双向自测通过；dsh-plugin self-test +2 用例。
+  - **清理**：domains/.cache 移除 3 个旧版本 dump-config（仅留 rc.2）；BKN 仓 430 文件未提交状态**不属于本项目管辖**（上游共享仓，只读消费），不代为提交。
 - （实施后逐阶段回填）

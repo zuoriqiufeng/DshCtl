@@ -14,9 +14,13 @@
  *   ④ objects/relations/actions/risks 四目录各 ≥1 个 .bkn
  *   ⑤ 关键 6 文件存在且含关键区块（syncrule 状态机、constraints 约束ID、
  *      action_routing 双关系类型、process_topology suspected_in、product 产品定位、prerequisites 状态前置）
+ *   ⑥ 2026-10-21（BKN 去装饰收敛跟随）：根目录若存在 bkn-version.json（发布清单，
+ *      version_id + 44 文件 sha256），以它为世代锚——世代视为满足 MIN（新规范件已无「N号」装饰），
+ *      并逐文件校验 sha256（数据被改/缺失即刻发现，只读校验不触碰 BKN 仓）。
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { dirname, join } from 'node:path'
 
 /** 插件解析语义对应的最低 BKN 世代（26 号 = KWeaver 四元收敛终态） */
 export const CONTRACT_MIN_GENERATION = 26
@@ -36,6 +40,8 @@ const REQUIRED_FILES: Array<[string, string[]]> = [
   ['objects/syncrule.bkn', ['## 状态机']],
   ['relations/action_routing.bkn', ['constrained_by', 'risks_of']],
   ['relations/process_topology.bkn', ['suspected_in']],
+  // 2026-10-21：BKN 新增机制因果层（fault_mechanism 对象群）；有此文件时须含关系标记，缺文件不算 issue（向前兼容旧数据）
+  ['relations/mechanism_causality.bkn', []],
   ['risks/constraints.bkn', ['约束ID']],
   ['risks/prerequisites.bkn', ['状态前置']],
 ]
@@ -52,6 +58,23 @@ export function validateBknContract(bknRoot: string): ContractResult {
   if (!existsSync(skillPath)) issues.push(`缺 SKILL.md（导航/批次演进）：${skillPath}`)
 
   let generation: number | null = null
+  // 2026-10-21：bkn-version.json（发布清单）优先作为世代锚——新规范件已去装饰（无「N号」标记），
+  // 清单存在即视为当前发布版（语义满足 MIN）；缺失时回退旧标记逻辑（双向兼容）。
+  const manifestPath = join(dirname(bknRoot), 'bkn-version.json') // 仓根发布清单（bkn/ 同级，与 plugin/ 同规约）
+  if (existsSync(manifestPath)) {
+    generation = CONTRACT_MIN_GENERATION
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { files?: Record<string, string> }
+      for (const [rel, expect] of Object.entries(manifest.files ?? {})) {
+        const fp = join(dirname(bknRoot), rel) // 清单 rel 以仓根为基准
+        if (!existsSync(fp)) { issues.push(`清单文件缺失: ${rel}`); continue }
+        const got = createHash('sha256').update(readFileSync(fp)).digest('hex')
+        if (got !== expect) issues.push(`清单哈希不匹配: ${rel}（数据与发布版不一致）`)
+      }
+    } catch (e) {
+      issues.push(`bkn-version.json 解析失败: ${String(e).slice(0, 120)}`)
+    }
+  }
   for (const p of [schemaPath, skillPath]) {
     if (generation !== null || !existsSync(p)) continue
     const m = GENERATION_RE.exec(readFileSync(p, 'utf8'))
@@ -68,7 +91,11 @@ export function validateBknContract(bknRoot: string): ContractResult {
 
   for (const [rel, needles] of REQUIRED_FILES) {
     const p = join(bknRoot, rel)
-    if (!existsSync(p)) { issues.push(`缺关键文件 ${rel}`); continue }
+    if (!existsSync(p)) {
+      // needles 为空的条目 = 「有则校验、无不强制」（向前兼容：新文件不回退旧数据）
+      if (needles.length > 0) issues.push(`缺关键文件 ${rel}`)
+      continue
+    }
     const text = readFileSync(p, 'utf8')
     for (const n of needles) if (!text.includes(n)) issues.push(`${rel} 缺关键区块/标记「${n}」`)
   }

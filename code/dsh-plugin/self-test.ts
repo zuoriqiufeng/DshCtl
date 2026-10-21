@@ -6,9 +6,10 @@
  *   node --import tsx/esm /hdd/demo/public/dsh-info/code/dsh-plugin/self-test.ts
  */
 
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { BKNResolver, bknWalkIssues } from './resolver.ts'
-import { validateBknContract, handleContractResult } from './bknContract.ts'
+import { validateBknContract, handleContractResult, CONTRACT_MIN_GENERATION } from './bknContract.ts'
 import { RelationTraverser } from './relations.ts'
 import { ContextLoader, ToonFormatter, TrimFilter } from './contextLoader.ts'
 import {
@@ -561,6 +562,20 @@ console.log('\n[10] v26 契约校验：世代/目录/关键文件/区块 + stric
   check('契约：无世代标记 → 结构通过且 generation=null', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { noGen: true })); return r.ok && r.generation === null })())
   check('契约：缺关键文件点名', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { omit: 'risks/prerequisites.bkn' })); return !r.ok && r.issues.some((i) => i.includes('risks/prerequisites.bkn')) })())
   check('契约：关键区块被抹点名（syncrule 状态机）', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { blankKey: '状态机' })); return !r.ok && r.issues.some((i) => i.includes('状态机')) })())
+  // 2026-10-21：bkn-version.json 发布清单锚（BKN 去装饰收敛跟随）——清单存在即世代满足 MIN + 哈希校验
+  check('契约：清单锚存在 → generation 视为满足 MIN', (() => {
+    const root = mk(join(fixture(), 'bkn'), { noGen: true })
+    const h = createHash('sha256').update(readFileSync(join(root, 'SCHEMA.md'))).digest('hex')
+    writeFileSync(join(root, '..', 'bkn-version.json'), JSON.stringify({ version_id: 'bkn-20261015-2', files: { 'bkn/SCHEMA.md': h } }))
+    const r = validateBknContract(root)
+    return r.ok && r.generation === CONTRACT_MIN_GENERATION
+  })())
+  check('契约：清单文件被篡改 → 哈希不匹配点名', (() => {
+    const root = mk(join(fixture(), 'bkn'), { noGen: true })
+    writeFileSync(join(root, '..', 'bkn-version.json'), JSON.stringify({ version_id: 'x', files: { 'bkn/SCHEMA.md': 'deadbeef' } }))
+    const r = validateBknContract(root)
+    return !r.ok && r.issues.some((i) => i.includes('哈希不匹配'))
+  })())
 
   const logs: string[] = []
   const logger = { info: (m: string) => { logs.push('I:' + m) }, error: (m: string) => { logs.push('E:' + m) } }

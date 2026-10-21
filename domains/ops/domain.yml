@@ -51,13 +51,12 @@ api_server:
   max_task_duration_sec: 120
   plugin_path: /hdd/demo/public/dsh-info/code/ops-api/index.ts
   plugin_id: ops-api
-# 模型配置（v0.4.1）：apply 生成 profile patch 的 override 行（id: llm-pi-ai / agent-default-model），
-# 根治「settings.yaml 导入段落被 apply 整体重写冲掉 → 默认路由 deepseek-official → MISSING_CREDENTIAL」。
+# 模型配置（2026-10-21 修订）：default 不钉死——未配置即走 DSH 会话默认模型。
+# 历史：v0.4.1 曾钉死 mimo-x-flash-preview（根治 apply 冲掉 settings 节 → MISSING_CREDENTIAL），
+# 但该网关 2026-10-21 起通道整体失效（/v1/models 空、两模型 503 model_not_found）。
+# providers 仅作声明备忘（huoshan/deepseek-v4-flash 已实测可用，需要时在此配 default 即可切回）；
 # 密钥只记 env 名（apiKeyEnv），env 值经 $DSH_HOME/.credentials.yaml refs 解析（不落明文）。
 model:
-  default:
-    provider: mimo-x
-    model: mimo-x-flash-preview
   providers:
     huoshan:
       displayName: 方舟
