@@ -19,7 +19,7 @@
 | `code/presets/i2stream-ops/` | 运维 agent preset 作者源（persona + 热路径） | 热路径块由脚本生成，禁止手改；apply 时内联进 profile patch 声明行（v0.1.7 声明式） |
 | `code/sidecars/` | Python sidecar（embed-server） | 独立进程，不挂 DSH 生命周期 |
 | `code/scripts/` | 生成/计时/冒烟脚本 | — |
-| `doc/gernalarrange/` | 领域编排通用方案 + dshctl 设计 | 跨领域复用资产 |
+| `doc/gernalarrange/` | 领域编排通用方案 + dshctl 设计 + 插件边界方向规划（`plugin-boundary-direction.md`：S0 纪律/S1 可搬移/S2 分仓） | 跨领域复用资产 |
 | `deepseek-harness/` | 上游 DSH 源码副本（编排试验田） | **对上游源码净改动 = 0**（见 §6） |
 | 共享 BKN | `/hdd/demo/public/i2stream-bkn/bkn` | 与 Hermes 工作区共用一份，只读消费 |
 

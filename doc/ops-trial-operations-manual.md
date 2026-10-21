@@ -52,11 +52,12 @@ journalctl -u dsh-ops-trial -f          # 实时日志（GUI token 也在日志�
    - **清理上游已删包的残留目录**（2026-10-08 沉淀）：`git pull` 不会删除"只含 node_modules 的空壳"目录，而 tsdown 的 workspace glob（`packages/*/*`）会把它当成员 → 报 `[@deepseek-ai/dsh-root] Cannot find entry`。检查方法：`for d in vendor/* packages/*/* apps/*; do [ -f "$d/package.json" ] || echo "STALE: $d"; done`，命中即删/移后重建。
    - 若卡在 `xlsx@https://cdn.sheetjs.com/...`（该包不在 npm 与各镜像，CDN 实测 ~1.4 KB/s）：可临时用本地 HTTPS 端点兑付（断点续传下全 → `/etc/hosts` 指 127.0.0.1 → `NODE_EXTRA_CA_CERTS` 信任自签证书），用完立即还原；详见 orchestration-plan §8 踩坑③。
    - `pnpm build` 已含 `build:web`（`scripts/build.ts` 依次跑 native-system → lib → web），无需再单跑 `pnpm build:web`。
+   - **pnpm 11.28.5 的 lockfile supply-chain 校验**（2026-10-20 沉淀）：上游 `packageManager` 升到 11.28.5 后，install/build 会先逐包校验 `minimumReleaseAge`/`trustPolicy`，直连 registry 慢时会卡在 `Verifying lockfile against supply-chain policies`。本次用 **`pnpm install --config.trust-lockfile=true`** 与 **`pnpm --config.trust-lockfile=true build`** 跳过（lockfile 来自已审阅的上游 tag）；`--trust-lockfile` 本身不是 CLI 开关（会报 `Unknown option`），必须用 `--config.trust-lockfile=true`，且不要把它写进仓库或全局配置。
 2. ~~dump-config 存档 diff（人工肉眼对账）~~ **已自动化：`dshctl upgrade-check`**（2026-09-16，v0.3）——
    `cd /hdd/demo/public/dsh-info/deepseek-harness && node --import tsx/esm /hdd/demo/public/dsh-info/code/dshctl/dshctl.ts upgrade-check --refresh`
    全领域 R2/R3 对账：消失 id（error，必须跟进清单）/ 新增行（warn，人工评估裁剪）；verdict=pass 才进入第 3 步；
    roster 不可用时 exit 2 拒绝假通过。历史基线由 `domains/.cache/dump-config-<版本>.json` 自动管理。
-3. `node --import tsx/esm /hdd/demo/public/dsh-info/code/dsh-plugin/self-test.ts` + `…/code/ops-api/self-test.ts`（在 /hdd/demo/public/dsh-info/deepseek-harness 根）
+3. `node --import tsx/esm /hdd/demo/public/dsh-info/code/dsh-plugin/self-test.ts` + `…/code/ops-api/self-test.ts` + `…/code/intent-router/self-test.ts`（在 /hdd/demo/public/dsh-info/deepseek-harness 根）；`dsh-plugin` 若因 BKN 共享数据契约/错误码漂移失败，先按 orchestration-plan §8 的 2026-10-20 条取证，勿只看 exit code。
 4. `systemctl restart dsh-ops-trial` + bench-4q（:8643 API 面；headless 后无 GUI 面）
 5. 回填版本与 diff 结果到 doc/ops-agent-orchestration-plan.md §8
 
