@@ -8,7 +8,9 @@
  *   warn → logger.error + 继续（工具保留，风险自知）；off → 仅 info
  *
  * 校验集合（最小覆盖，对应 /hdd/demo/public/i2stream-bkn/bkn/SCHEMA.md 26 号终态）：
- *   ① 根目录存在 ② SCHEMA.md/SKILL.md 存在 ③ 世代号 ≥ CONTRACT_MIN_GENERATION
+ *   ① 根目录存在 ② SCHEMA.md/SKILL.md 存在 ③ 世代号标记若存在则 ≥ CONTRACT_MIN_GENERATION
+ *      （2026-10-21 软化：本体分层重构后世代标记可不在 SCHEMA/SKILL 首部——标记缺省不再拒载，
+ *       结构校验才是硬契约；有标记仍按 ≥26 把关，防回退旧语义）
  *   ④ objects/relations/actions/risks 四目录各 ≥1 个 .bkn
  *   ⑤ 关键 6 文件存在且含关键区块（syncrule 状态机、constraints 约束ID、
  *      action_routing 双关系类型、process_topology suspected_in、product 产品定位、prerequisites 状态前置）
@@ -55,8 +57,8 @@ export function validateBknContract(bknRoot: string): ContractResult {
     const m = GENERATION_RE.exec(readFileSync(p, 'utf8'))
     if (m) generation = Number(m[1])
   }
-  if (generation === null) issues.push('SCHEMA.md/SKILL.md 均无世代号标记（正则 `(\\d+)\\s*号`）——无法确认契约世代')
-  else if (generation < CONTRACT_MIN_GENERATION) issues.push(`BKN 世代号 ${generation} < ${CONTRACT_MIN_GENERATION}（本插件按 v26 四元收敛语义解析）`)
+  // 世代标记缺省不报 issue（2026-10-21 软化，见文件头 ③）；有标记则仍须 >=26（防回退旧语义）
+  if (generation !== null && generation < CONTRACT_MIN_GENERATION) issues.push(`BKN 世代号 ${generation} < ${CONTRACT_MIN_GENERATION}（本插件按 v26 四元收敛语义解析）`)
 
   for (const dir of ['objects', 'relations', 'actions', 'risks']) {
     const d = join(bknRoot, dir)

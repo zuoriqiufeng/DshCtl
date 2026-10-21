@@ -120,11 +120,16 @@ console.log('\n[3] riskGuard.ts 规则与决策')
   check('解析到 risk 规则（含兜底）', ids.length >= 3, JSON.stringify(ids))
 
   const parsed = getRiskRules(BKN_ROOT)
-  const pruned = Object.entries(parsed).filter(([, r]) => r.errorCode)
-  check('constraints.bkn 的 state_prerequisite 规则带错误码', pruned.length > 0, JSON.stringify(pruned.map(([id, r]) => [id, r.action, [...r.forbiddenStates]])))
+  // 2026-10-21 对齐：BKN 数据（10-12~15 编辑）移除 constraints 错误码标注——语义迁 plugin/error_semantics.yaml；
+  // 规则仍命中 action/state，errorCode 为空是预期（非 blockable，advisory 口径）。若 BKN 恢复错误码需反向同步。
+  const stateRules = Object.entries(parsed).filter(([, r]) => (r as { riskType?: string }).riskType === 'state_prerequisite')
+  check('constraints.bkn 的 state_prerequisite 规则解析（错误码列已移除 ⇒ errorCode 空为预期）',
+    stateRules.length > 0 && stateRules.every(([, r]) => !r.errorCode),
+    JSON.stringify(stateRules.slice(0, 3).map(([id, r]) => [id, r.action, [...r.forbiddenStates], r.errorCode])))
 
   const blocked = checkActionRisk('delete_sync_rule', 'RUNNING', BKN_ROOT)
-  check('delete_sync_rule@RUNNING 被拦', blocked.passed === false && blocked.errorCode === '-4071', JSON.stringify(blocked))
+  check('delete_sync_rule@RUNNING 命中且 advisory（错误码移除 ⇒ 非 blockable，Stage B 口径）',
+    blocked.passed === false && blocked.errorCode === '' && blocked.blockable === false, JSON.stringify(blocked))
 
   const allowed = checkActionRisk('start_sync_rule', 'STOPPED', BKN_ROOT)
   check('start_sync_rule@STOPPED 放行', allowed.passed === true, JSON.stringify(allowed))
@@ -132,7 +137,8 @@ console.log('\n[3] riskGuard.ts 规则与决策')
   check('normalizeAction(delete_rule) → delete_sync_rule', normalizeAction('delete_rule') === 'delete_sync_rule')
 
   const g1 = guardDecision('bash', { command: 'i2stream delete rule --name r1 while RUNNING' }, { enabled: true, block: true, bknRoot: BKN_ROOT, mutatingTools: ['bash'] })
-  check('bash 命令命中 delete+RUNNING → 拦截', g1 !== null && g1.action === 'delete_sync_rule', JSON.stringify(g1))
+  // advisory 放行（命中规则无错误码 ⇒ 非 blockable；guardDecision 返回 null 但控制台记 warn）
+  check('bash 命中 delete+RUNNING → advisory 放行（非 blockable 不拦）', g1 === null, JSON.stringify(g1))
 
   const g2 = guardDecision('bash', { command: 'ls -la /tmp' }, { enabled: true, block: true, bknRoot: BKN_ROOT, mutatingTools: ['bash'] })
   check('无害命令放行', g2 === null, JSON.stringify(g2))
@@ -209,19 +215,21 @@ console.log('\n[5] 阶段1新增: 场景匹配 / 兼容增强 / 前置提取 / b
     'Oracle: 归档日志已开启\nPG: wal_level=logical\n通用: 网络连通', 'PostgreSQL')
   check('库特化提取: PG→PostgreSQL 别名命中', dbSpec.length === 1 && dbSpec[0] === 'wal_level=logical', JSON.stringify(dbSpec))
 
-  // blockable（Stage B 门控口径：critical + error_code 非空）
+  // blockable（Stage B 门控口径）。2026-10-21 对齐：BKN 数据移除错误码标注 ⇒ 全部规则
+  // errorCode='' ⇒ 非 blockable（advisory）；拦截面收窄是数据侧决定，语义迁 error_semantics.yaml。
+  // 若 BKN 恢复错误码标注，本组断言需反向同步回 blockable=true。
   const allRules = getRiskRules(BKN_ROOT)
-  const nonBlockable = Object.entries(allRules).filter(([, r]) => r.errorCode && !r.blockable)
-  check('带错误码的 critical 规则全部 blockable', nonBlockable.length === 0, JSON.stringify(nonBlockable.map(([id]) => id)))
+  const codeBearing = Object.entries(allRules).filter(([, r]) => r.errorCode)
+  check('规则集不含错误码（数据终态：语义已迁 error_semantics.yaml）', codeBearing.length === 0, JSON.stringify(codeBearing.map(([id]) => id)))
   const blockedChk = checkActionRisk(DEL, RUN, BKN_ROOT)
-  check('命中规则 blockable=true', blockedChk.blockable === true, JSON.stringify(blockedChk))
+  check('命中规则 blockable=false（advisory）', blockedChk.passed === false && blockedChk.blockable === false, JSON.stringify(blockedChk))
   const gCmd = `i2stream ${DEL.split('_').join(' ')} --name r1 while ${RUN}`
   const gray = guardDecision('bash', { command: gCmd },
     { enabled: true, block: false, bknRoot: BKN_ROOT, mutatingTools: ['bash'] })
   check('gray 模式（block=false）放行', gray === null, JSON.stringify(gray))
   const gBlock = guardDecision('bash', { command: gCmd },
     { enabled: true, block: true, bknRoot: BKN_ROOT, mutatingTools: ['bash'] })
-  check('block 模式 + blockable 规则 → 拦截', gBlock !== null && gBlock.blockable === true, JSON.stringify(gBlock))
+  check('block 模式 + 非 blockable 规则 → advisory 放行', gBlock === null, JSON.stringify(gBlock))
 
   // 状态机解析（objects/*.bkn）+ 运行族合并
   const delRule = allRules[`cannot_${'delete'}_${RUN}`]
@@ -311,14 +319,41 @@ console.log('\n[6] 阶段3 检索 bm25/retrieval/诊断导航')
   check('resolveDbType YAS', resolveDbType('YAS-01001') === 'yashandb')
   check('resolveDbType 未知', resolveDbType('-4002') === '')
 
-  // extractBknContext（真实 risks/diagnostics.bkn）
+  // extractBknContext（62/63 号链路：码 → 官方含义/语义规则 → dimension → diagnosed_by/observed_in）
   const ctx1 = extractBknContext(resolver, '-4002')
-  // 25 号方案：锚点表已删——结构为「常量 + 边」（suspected_process 取自 suspected_in 边）
-  check('extractBknContext -4002 存在风险上下文（常量+边结构）',
+  check('extractBknContext -4002 风险上下文（官方含义 → dimension:log_readable + 别名 + needs）',
     ctx1 !== null && ctx1.error_code === '-4002'
-    && Array.isArray(ctx1.suspected_process) && (ctx1.suspected_process as string[]).includes('process:iatrack'),
-    JSON.stringify(ctx1).slice(0, 160))
+    && (ctx1.dimensions as string[]).includes('dimension:log_readable')
+    && (ctx1.aliases as string[]).includes('REDO位点异常')
+    && Array.isArray(ctx1.needs),
+    JSON.stringify(ctx1).slice(0, 200))
   check('extractBknContext 无码', extractBknContext(resolver, undefined) === null)
+
+  // ── 62/63 号链路（errorSemantics.ts；py resolver.get_risk 1:1）──
+  const risk4002 = resolver.getRisk('-4002')
+  check('getRisk(-4002) 裸码走官方含义（status=统一 ⇒ dimension:log_readable + diagnosed_by Skill）',
+    risk4002 !== null && risk4002.meaning_source === 'code' && risk4002.meaning?.rule === 'log_readable'
+    && (risk4002.dimensions ?? []).includes('dimension:log_readable')
+    && (risk4002.diagnosed_skills ?? []).includes('skill:i2stream-db-diagnostics'),
+    JSON.stringify(risk4002?.meaning) + ' | skills=' + JSON.stringify(risk4002?.diagnosed_skills))
+  const riskMsg = resolver.getRisk('', '归档日志被清理，位点不连续')
+  check('getRisk(message) 现场文本命中 log_readable（meaning_source=message）',
+    riskMsg !== null && riskMsg.meaning_source === 'message' && riskMsg.meaning?.rule === 'log_readable'
+    && (riskMsg.meaning?.evidence ?? '').includes('命中关键词'),
+    JSON.stringify(riskMsg?.meaning))
+  const risk4071 = resolver.getRisk('-4071')
+  check('getRisk(-4071) 官方含义 → state_machine（match_official 词表）',
+    risk4071 !== null && (risk4071.dimensions ?? []).includes('dimension:state_machine'),
+    JSON.stringify(risk4071?.meaning) + ' | conflicts=' + JSON.stringify(risk4071?.conflicts))
+  const riskLog = resolver.getRisk('-4002', '', 'iatrack')
+  check('getRisk(log_source) 嫌疑进程直接取来源进程（未给则不猜）',
+    riskLog !== null && (riskLog.suspected_process ?? []).includes('process:iatrack')
+    && (risk4002?.suspected_process ?? []).length === 0,
+    JSON.stringify(riskLog?.suspected_process))
+  const skillViaChain = resolver.getSymptomSkills('-4002')
+  check('getSymptomSkills(错误码) 62/63 号链路回退到 diagnosed_by Skill',
+    skillViaChain.required.length > 0 && skillViaChain.required.some((s) => s.name === 'i2stream-db-diagnostics'),
+    JSON.stringify(skillViaChain.required))
 }
 
 // ═══════════════ [7] 阶段3补充: supplement 质量闭环（Hermes _wrap 层） ═══════════════
@@ -406,8 +441,11 @@ console.log('\n[8] 补全: 图边三源join / operation前置知识 / 纯函数'
   check('edges: start → rule_must_be_STOPPED', startRules.includes('rule_must_be_' + SP), JSON.stringify(startRules))
   check('edges: start → cannot_restart_' + S, startRules.includes('cannot_restart_' + S), JSON.stringify(startRules))
   check('edges: stop → must_use_stop_parse_yes', (edges.constraints['stop_sync_rule'] ?? []).includes('must_use_stop_parse_yes'))
-  // 边目标带命名空间前缀（error:/risk:）是有意设计——图节点 ID 空间与裸错误码不同
-  check('edges: risks_of 解析（start → error:-4073）', (edges.risks['start_sync_rule'] ?? []).includes('error:-4073'), JSON.stringify(edges.risks['start_sync_rule']))
+  // 边目标带命名空间前缀（risk:）是有意设计——图节点 ID 空间与裸错误码不同。
+  // 2026-10-21 对齐：error: 前缀边已退出本体（码只作入口，语义迁 error_semantics.yaml），
+  // risks_of 只承载 risk: 风险节点。
+  check('edges: risks_of 解析（start → risk:fullsync_stuck）', (edges.risks['start_sync_rule'] ?? []).includes('risk:fullsync_stuck'), JSON.stringify(edges.risks['start_sync_rule']))
+  check('edges: risks_of 不含 error: 边（数据终态）', !(edges.risks['start_sync_rule'] ?? []).some((t) => t.startsWith('error:')), JSON.stringify(edges.risks['start_sync_rule']))
 
   // ── parseConstraintsDetail：详情表全行解析（含 forbidden_sequence 类型）──
   const details = parseConstraintsDetail(BKN_ROOT)
@@ -421,7 +459,7 @@ console.log('\n[8] 补全: 图边三源join / operation前置知识 / 纯函数'
   check('join: 规则集 ≥ 10 条（此前仅 3）', ids.length >= 10, String(ids.length))
   check('join: 点名规则 rule_must_be_' + SP + ' 存在', rules['rule_must_be_' + SP] !== undefined)
   check('join: must_use_stop_parse_yes 存在且 sequenceSemantic', rules['must_use_stop_parse_yes']?.sequenceSemantic === true)
-  check('join: worknode_must_be_ONLINE blockable（-4016）', rules['worknode_must_be_ONLINE']?.blockable === true)
+  check('join: worknode_must_be_ONLINE 非 blockable（-4016 错误码标注已移除）', rules['worknode_must_be_ONLINE']?.blockable === false, JSON.stringify(rules['worknode_must_be_ONLINE']))
   check('join: cannot_stop_' + FX + ' 非 blockable（无 -XXXX，API 500 口径）', rules['cannot_stop_' + FX]?.blockable === false)
   check('join: source=graph_edges', rules['cannot_delete_' + S]?.source === 'graph_edges')
   const chained = checkActionRisk('start_sync_rule', S, BKN_ROOT)
@@ -495,10 +533,12 @@ console.log('\n[10] v26 契约校验：世代/目录/关键文件/区块 + stric
   const { tmpdir } = await import('node:os')
   const fixture = (): string => mkdtempSync(join(tmpdir(), 'dshp-contract-'))
 
-  const mk = (root: string, over: { generation?: number; omit?: string; blankKey?: string } = {}): string => {
+  const mk = (root: string, over: { generation?: number; omit?: string; blankKey?: string; noGen?: boolean } = {}): string => {
     const gen = over.generation ?? 26
     for (const d of ['objects', 'relations', 'actions', 'risks']) mkdirSync(join(root, d), { recursive: true })
-    writeFileSync(join(root, 'SCHEMA.md'), `# BKN 类型枚举标准（SCHEMA）\n\n> 2026-09-24（${gen} 号四元收敛终态）\n`)
+    writeFileSync(join(root, 'SCHEMA.md'), over.noGen
+      ? '# BKN 类型枚举标准（SCHEMA）\n\n本体分层重构后世代标记可不在首部（2026-10-21 软化口径）\n'
+      : `# BKN 类型枚举标准（SCHEMA）\n\n> 2026-09-24（${gen} 号四元收敛终态）\n`)
     writeFileSync(join(root, 'SKILL.md'), '# 导航\n')
     for (const d of ['objects', 'relations', 'actions', 'risks']) writeFileSync(join(root, d, 'x.bkn'), '## X\n')
     const req: Array<[string, string]> = [
@@ -517,6 +557,8 @@ console.log('\n[10] v26 契约校验：世代/目录/关键文件/区块 + stric
   check('契约：合格副本通过且世代=26', r1.ok && r1.generation === 26, JSON.stringify(r1.issues))
   check('契约：不存在的根目录拒绝', !validateBknContract(join(good, 'nope')).ok)
   check('契约：世代号 25（旧版）拒绝且点名', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { generation: 25 })); return !r.ok && r.issues.some((i) => i.includes('世代号 25')) })())
+  // 2026-10-21 软化：世代标记缺省不拒载（结构校验是硬契约）；有标记仍 ≥26 把关
+  check('契约：无世代标记 → 结构通过且 generation=null', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { noGen: true })); return r.ok && r.generation === null })())
   check('契约：缺关键文件点名', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { omit: 'risks/prerequisites.bkn' })); return !r.ok && r.issues.some((i) => i.includes('risks/prerequisites.bkn')) })())
   check('契约：关键区块被抹点名（syncrule 状态机）', (() => { const r = validateBknContract(mk(join(fixture(), 'bkn'), { blankKey: '状态机' })); return !r.ok && r.issues.some((i) => i.includes('状态机')) })())
 

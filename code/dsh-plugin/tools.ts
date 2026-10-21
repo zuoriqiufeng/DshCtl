@@ -527,9 +527,11 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
 
   registerTool({
     name: 'diagnose_error',
-    description: '根据错误码诊断 i2Stream 同步异常。返回错误原因、修复步骤、可能违反的操作约束。当用户报告错误码或描述异常时调用。',
+    description: '根据错误码诊断 i2Stream 同步异常。返回错误原因、修复步骤、可能违反的操作约束。当用户报告错误码或描述异常时调用；能给出现场日志消息文本（message）与日志来源进程（log_source）时分类更准。',
     parameters: {
       error_code: { type: 'string', description: '错误码: -4073/-4016/-4071/-4031/-4046/...', required: true },
+      message: { type: 'string', description: '该码所在的日志消息文本（可选；语义规则按文本命中，比裸码更准）' },
+      log_source: { type: 'string', description: '该码出现在哪个进程的日志（可选，如 iatrack/ialoader；给出即确定为嫌疑进程）' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true },
@@ -541,7 +543,8 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
       const errorCode = BKNResolver.normalizeErrorCode(
         resolver.resolveSynonym(String(args.error_code ?? '')),
       )
-      const risk = resolver.getRisk(errorCode)
+      // 62/63 号链路：码只作入口；消息文本/日志来源透传给语义分类（py get_risk(message, log_source) 1:1）
+      const risk = resolver.getRisk(errorCode, String(args.message ?? ''), String(args.log_source ?? ''))
       if (!risk) {
         return { error_code: errorCode, diagnosis: '未在 BKN 中找到该错误码的诊断信息' }
       }
@@ -942,7 +945,10 @@ export function extractBknContext(resolver: BKNResolver, errorCode?: string): Re
   const risk = resolver.getRisk(errorCode)
   if (!risk) return null
   const context: Record<string, unknown> = { error_code: risk.error_code || errorCode }
-  for (const key of ['retrieval_guide', 'suspected_process', 'dimensions', 'aliases', 'unknown_rule'] as const) {
+  for (const key of [
+    'retrieval_guide', 'suspected_process', 'dimensions', 'aliases', 'unknown_rule',
+    'meaning', 'meaning_source', 'conflicts', 'diagnosed_skills', 'observed_logs', 'needs',
+  ] as const) {
     const val = risk[key]
     if (val) context[key] = val
   }

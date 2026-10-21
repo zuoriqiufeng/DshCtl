@@ -32,6 +32,7 @@ import {
   type Delegation,
 } from './constants.ts'
 import { RelationTraverser } from './relations.ts'
+import { classifyErrorMessage, officialMeaningFor, loadErrorSemantics, loadErrorCodes } from './errorSemantics.ts'
 
 export interface Table {
   header: string[]
@@ -88,6 +89,18 @@ export interface RiskInfo {
   dimensions: string[]
   aliases: string[]
   unknown_rule: string
+  /** 62/63 号链路：语义类别命中结果（rule/dimension/guide/skill/evidence） */
+  meaning?: { rule: string; dimension: string; guide: string; skill: string; evidence: string }
+  /** meaning 来源：message（现场文本）| code（官方含义） */
+  meaning_source?: 'message' | 'code'
+  /** 官方含义与仓内证据的冲突说明（status=区分/待现场复核 时非空） */
+  conflicts?: string[]
+  /** 语义类别 → 诊断 Skill（dimension --diagnosed_by--> skill 边） */
+  diagnosed_skills?: string[]
+  /** 语义类别 → 取证日志（dimension --observed_in--> log 边，有序） */
+  observed_logs?: string[]
+  /** 需要调用方补充的信息（py needs 1:1） */
+  needs?: string[]
   /** Tool 层投影：派生字段的可读渲染（Python get_risk 无 raw 键，TS 侧 diagnose_error 需诊断正文）。 */
   raw: string
 }
@@ -986,32 +999,62 @@ export class BKNResolver {
   }
 
   /**
-   * 查询错误码诊断指引（25 号：锚点表已删，改为「常量 + 边」组装）。
+   * 查询错误码诊断指引（62/63 号链路 v2；2026-10-21 对齐 BKN 数据编辑后的新口径）。
    *
-   * 返回结构（字段名与 21 号对齐）：
+   * 链路：码(+消息文本) → 语义类别（error_semantics.yaml 有界规则，按文本命中、可溯依据；
+   *       裸码走 error_codes.yaml dimension_map 官方含义，仅 status=统一/单源 可信）
+   *     → 本体推理：dimension --diagnosed_by--> skill、dimension --observed_in--> log
+   *     → 嫌疑进程：只在给出 logSource 时直接取它（哪个进程的日志出现该码）；未给则不猜。
+   *
+   * 返回结构（字段名与 21 号对齐，62/63 号新增 meaning/meaning_source/conflicts/
+   * diagnosed_skills/observed_logs/needs；py resolver.get_risk 1:1）：
    *   - `error_code`：规范码
    *   - `retrieval_guide`：完整定义去哪查（常量 DIAG_RETRIEVAL_GUIDE）
-   *   - `suspected_process`：嫌疑进程列表，取自 `suspected_in` 边（本体权威）
-   *   - `dimensions`：跨切面检查维度（has_class 边）
+   *   - `suspected_process`：嫌疑进程（仅 logSource 给出时非空——本体不再持 error: 边）
+   *   - `dimensions`：语义类别（如 dimension:log_readable；unknown 时如实返回）
    *   - `aliases`：该码的语义别名（constants.ERROR_ALIASES，值数据层）
    *   - `unknown_rule`：未登记码的处理规则（dimension:unknown + gap_log）
-   * 未知码（不在别名常量、且无边）返回 null——调用方据此走兜底。
+   * 码与消息均为空时返回 null。
    */
-  getRisk(errorCode: string): RiskInfo | null {
+  getRisk(errorCode: string, message = '', logSource = ''): RiskInfo | null {
     const clean = (errorCode ?? '').trim().replace(/^error:/, '').trim()
-    if (!clean) return null
-    const traverser = this.getTraverser()
-    const processes = traverser.getTargets(`error:${clean}`, 'suspected_in')
+    const msg = (message ?? '').trim()
+    const ls = (logSource ?? '').trim()
+    if (!clean && !msg) return null
+    const sem = loadErrorSemantics(this.root)
+    const codes = loadErrorCodes(this.root)
     const aliases = Object.entries(ERROR_ALIASES).filter(([, c]) => c === clean).map(([a]) => a)
-    const dimensions = traverser.getTargets(`error:${clean}`, 'has_class')
-    if (!processes.length && !aliases.length && !dimensions.length) return null
+    const conflicts: string[] = []
+    const meaning = msg ? classifyErrorMessage(sem, msg) : officialMeaningFor(sem, codes, clean, conflicts)
+    const meaningSource: 'message' | 'code' = msg ? 'message' : 'code'
+    const dim = meaning.dimension
+    const traverser = this.getTraverser()
+    const diagnosedSkills = dim ? traverser.getTargets(dim, 'diagnosed_by') : []
+    const observedLogs = dim ? traverser.getTargets(dim, 'observed_in') : []
+    const processes: string[] = []
+    if (ls) processes.push(ls.startsWith('process:') ? ls : `process:${ls}`)
+    const needs: string[] = []
+    if (!msg) {
+      if (meaningSource === 'code' && dim && dim !== 'dimension:unknown') {
+        needs.push('已据官方含义给出类别；补该码的日志消息文本可进一步确认现场语义')
+      } else {
+        needs.push('该码所在的日志消息文本（语义规则按文本命中；只给码且无可信官方含义时定不了含义）')
+      }
+    }
+    if (!processes.length) needs.push('日志来源（该码出现在哪个进程的日志——给出即可确定嫌疑进程）')
     const info = {
       error_code: clean,
       retrieval_guide: DIAG_RETRIEVAL_GUIDE,
       suspected_process: processes,
-      dimensions,
+      dimensions: dim ? [dim] : [],
       aliases,
       unknown_rule: UNKNOWN_RULE,
+      meaning,
+      meaning_source: meaningSource,
+      conflicts,
+      diagnosed_skills: diagnosedSkills,
+      observed_logs: observedLogs,
+      needs,
     }
     return { ...info, raw: renderRiskContext(info) }
   }
@@ -1333,7 +1376,31 @@ export class BKNResolver {
     }
     // 过渡期回退：has_class → diagnosed_by（20 号方案 §4.2，保留一个版本周期）
     const classes = traverser.getClassesForSymptom(`error:${code}`)
-    if (!classes.length) return null
+    if (!classes.length) {
+      // 62/63 号链路回退（2026-10-21）：error: 边退出本体后，码 → 语义类别 → diagnosed_by
+      const info = this.getRisk(code)
+      const dim = info?.dimensions[0]
+      if (!info || !dim) return null
+      const required2 = traverser.getTargets(dim, 'diagnosed_by').map((s) => ({
+        name: s.replace(/^skill:/, ''),
+        reason: `维度 ${dim} 路由（diagnosed_by 边；依据 ${info.meaning?.evidence ?? '官方含义/语义规则'}）`,
+      }))
+      if (!required2.length) return null
+      const logs = traverser.getTargets(dim, 'observed_in')
+      let analysis2 = `诊断指引：完整定义查 ${DIAG_RETRIEVAL_GUIDE}`
+      analysis2 += `；语义类别 ${dim}（${info.meaning?.evidence ?? ''}）`
+      if (logs.length) analysis2 += `；取证日志 ${logs.join('、')}`
+      const names2 = required2.map((s) => s.name)
+      return {
+        required: required2,
+        optional: [manifestSkill('skill:i2stream-bkn-plugin', '补查错误码上下文（diagnose_error）', this.manifestPath)],
+        analysis_framework: analysis2,
+        skill_capabilities: manifestSkillCapabilities(names2, this.manifestPath),
+        analysis_source: 'errorSemantics（62/63 号链路：官方含义/语义规则 → dimension）+ bkn:relations/process_topology.bkn#diagnosed_by',
+        capabilities_source: 'manifest:plugin/skill_manifest.yaml（Skill 层能力概要）',
+        diag_class: dim,
+      }
+    }
     const classId = classes[0]! // has_class 为 N:1
     const required = traverser.getSkillsForClass(classId).map((name) => ({
       name,
@@ -1571,14 +1638,23 @@ export class BKNResolver {
   }
 }
 
-/** getRisk 派生字段的可读渲染（Tool 层投影；字段全部来自常量与边，不引入新知识）。 */
+/** getRisk 派生字段的可读渲染（Tool 层投影；字段全部来自常量/边/语义规则表，不引入新知识）。 */
 function renderRiskContext(info: Omit<RiskInfo, 'raw'>): string {
   const lines = [`# 错误码 ${info.error_code} 诊断指引`, '']
-  lines.push(`- 检索指引: ${info.retrieval_guide}`)
+  if (info.meaning) {
+    const m = info.meaning
+    lines.push(`- 语义类别: ${m.dimension || '（未识别）'}`)
+    if (m.rule) lines.push(`- 命中规则: ${m.rule}（${m.evidence}）`)
+    if (m.guide) lines.push(`- 排查方向: ${m.guide}`)
+    if (m.skill) lines.push(`- 语义规则指向 Skill: ${m.skill}`)
+  }
   if (info.suspected_process.length) lines.push(`- 嫌疑进程: ${info.suspected_process.join('、')}`)
-  if (info.dimensions.length) lines.push(`- 检查维度: ${info.dimensions.join('、')}`)
+  if (info.diagnosed_skills?.length) lines.push(`- 诊断 Skill: ${info.diagnosed_skills.join('、')}`)
+  if (info.observed_logs?.length) lines.push(`- 取证日志: ${info.observed_logs.join('、')}`)
   if (info.aliases.length) lines.push(`- 别名: ${info.aliases.join('、')}`)
+  if (info.conflicts?.length) for (const c of info.conflicts) lines.push(`- 官方含义冲突: ${c}`)
   lines.push(`- 未登记码处理: ${info.unknown_rule}`)
+  if (info.needs?.length) for (const n of info.needs) lines.push(`- 需要补充: ${n}`)
   return lines.join('\n')
 }
 
