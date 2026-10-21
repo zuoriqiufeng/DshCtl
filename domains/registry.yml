@@ -10,7 +10,7 @@ instances:
       at: 2026-10-21
       result: pass
       errors: 0
-      warns: 1
+      warns: 0
     applied_at: 2026-10-21
 shared_deps: []
 unregistered_ports: []
