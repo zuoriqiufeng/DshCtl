@@ -47,7 +47,16 @@
 | B3 | /admin 观测卡片补失败率行 | ✅ renderObs 加"失败 X（timeout Y / abandoned Z）"；self-test 16.6 |
 | CI | `bash code/dshctl/ci.sh` ALL GREEN（9 环节） | ✅ 2026-11-05 实测 ALL GREEN；`dshctl check ops --ci` exit=0 |
 
-> live 验证（/v1/metrics errors 实际带出、/admin 反馈闭环区块渲染、capture_correction 被模型真实调用、bm25RefreshSec 生产配置启用）受实例重启 + 模型网关 503 阻塞（orchestration-plan §8 挂账），按惯例登记顺延。
+> **live 补测（2026-11-06，实例 apply + 重启后实测）**：
+>
+> | 项 | 结果 |
+> |---|---|
+> | /v1/metrics errors 实际带出 | ✅ 一次 abandoned 回合后实测 `requests=1 / errors=1 / errorsAbandoned=1 / days=1 / sessions=1`，`$DSH_HOME/observability/usage-20261106.jsonl` 落盘（A2 失败入账 + 观测服务双通） |
+> | /admin 反馈闭环区块渲染 | ✅ `/admin` 200，区块标题与卡片说明在位；三个只读端点 Bearer(admin key) 均 200——observability（aggregate + recentRisk）、feedback（28 条既有 gap 分析：confidenceDist/topGaps/backlog）、skills/usage（`{}` 空台账诚实返回） |
+> | bm25RefreshSec 生产配置启用 | ✅ `domains/ops/domain.yml` bkn-plugin 段设 600s → apply 生成 `profile patch:13 bm25RefreshSec: 600`；重启后 journal 无相关报错 |
+> | capture_correction 被模型真实调用 | ⏸ 仍阻塞：网关 `/v1/models` 返回空清单（2026-11-06 用有效 key 复测仍 0 模型）+ 会话默认模型未配置 → 无成功回合可触发工具调用。工具已注册（`/v1/capabilities` tools 17→19 = +capture_correction/resolve_correction），待网关恢复补测 |
+>
+> 本轮同时确认：两插件已随 apply 进入 profile patch（`dsh-observability`/`bkn-feedback` 声明行在位），实例运行 0.3.0 正常。
 >
 > 批次 C 已登记：roadmap §10（工程护栏 K12-K14 / 中期项 / 催办类）。
 

@@ -22,6 +22,9 @@ plugins:
       embedUrl: http://127.0.0.1:8096/embed
       qdrantCollection: i2stream_collection
       gapLogPath: /hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl
+      # BM25 定点刷新（P1.5 A1，2026-11-06 生产启用）：Qdrant points_count 变化时定向重建索引；
+      # 0=关（旧行为）。600s 与 gap_log/usage 的日切粒度匹配，成本为一次 count 查询。
+      bm25RefreshSec: 600
   - id: ops-skill-manager
     path: /hdd/demo/public/dsh-info/code/ops-skill-manager/index.ts
     config:

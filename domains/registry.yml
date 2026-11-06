@@ -11,6 +11,6 @@ instances:
       result: pass
       errors: 0
       warns: 0
-    applied_at: 2026-10-21
+    applied_at: 2026-11-06
 shared_deps: []
 unregistered_ports: []
