@@ -35,6 +35,7 @@ import { buildAliasIndex, DEFAULT_GATE, type GateConfig } from './layer2.ts'
 import { mergeTaxonomy, type IntentDef } from './taxonomy.ts'
 import { createFileLog, formatArgs, normalizeLevel, type DecisionEntry, type FileLog, type LogLevel } from './logfile.ts'
 import { OVERRIDES } from './overrides.ts'
+import { extractStackSignal, type StackSignal } from './stack.ts'
 
 /** 声明本插件注入的用户消息来源（MessageSourceMap 是合并扩展类型，各生产者声明自己的 kind）。 */
 declare module '@deepseek-ai/dsh-llm' {
@@ -44,6 +45,10 @@ declare module '@deepseek-ai/dsh-llm' {
       intent: string
       tier: string
       rule: string
+    }
+    'stack-tip': {
+      kind: 'stack-tip'
+      signal: string
     }
   }
 }
@@ -313,6 +318,12 @@ export function apply(ctx: Context, config?: Config): void {
       const text = lastUserText(messages)
       if (text.trim() === '') return decision
 
+      // 批次 D1（P6 堆栈信号）：输入含堆栈/异常链/线程状态 → 优先注入 stack_tip → 该 Skill，
+      // 不路由任何工具（守 py 54 号 C 契约）；单类失败静默（H-15）。命中时压过意图注入，
+      // 否则模型会把堆栈当普通文本去 call diagnose_error 这类工具——正是 C 契约要挡的。
+      let stack: StackSignal | null = null
+      try { stack = extractStackSignal(text) } catch { stack = null }
+
       const result = await classify(text, deps)
       signal.throwIfAborted()
 
@@ -367,6 +378,7 @@ export function apply(ctx: Context, config?: Config): void {
       }
       if (cfg.mode !== 'inject') {
         file.decision(entry)
+        if (stack) log.info('[intent-router] stack 信号：kind=%s（mode=%s，只算不注入）', stack.kind, cfg.mode)
         return decision
       }
 
@@ -376,14 +388,21 @@ export function apply(ctx: Context, config?: Config): void {
         return decision
       }
 
-      const textToInject = renderInjectionText(result.intent, result.hit!, cfg.injectTemplate)
+      // 注入：优先 stack_tip（堆栈输入不该去 call 工具）；否则走意图注入（须 accepted + injectable）
+      if (!accepted && !stack) {
+        file.decision(entry)
+        return decision
+      }
+      const textToInject = stack ? stack.tip : renderInjectionText(result.intent, result.hit!, cfg.injectTemplate)
       const injection = createUserMessage({
         content: [{ type: 'text', text: textToInject }],
-        source: { kind: 'intent-router', intent: result.intent.id, tier: result.tier ?? '', rule: result.hit?.rule ?? '' },
+        source: stack
+          ? { kind: 'stack-tip', signal: stack.kind }
+          : { kind: 'intent-router', intent: result.intent.id, tier: result.tier ?? '', rule: result.hit?.rule ?? '' },
       })
       const p = pending.get(agentId)
       if (p) p.injected = true
-      file.decision({ ...entry, injected: true })
+      file.decision({ ...entry, injected: true, ...(stack ? { reason: 'stack-signal' } : {}) })
       return { ...decision, messages: [...decision.messages, injection] }
     } catch (error) {
       // 降级铁律：意图识别是加速路径，任何失败都不影响会话

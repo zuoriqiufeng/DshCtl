@@ -26,6 +26,7 @@ import {
 } from './logfile.ts'
 import { cosine } from './bm25.ts'
 import { OVERRIDES } from './overrides.ts'
+import { extractStackSignal, STACK_SKILL } from './stack.ts'
 
 let failures = 0
 let passed = 0
@@ -50,7 +51,7 @@ const byId = (id: string): IntentDef | undefined => INTENTS.find((i) => i.id ===
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n[1] taxonomy：生成物加载 / 校验 / 合并')
 check('生成物可加载且非空', INTENTS.length >= 10, `intents=${INTENTS.length}`)
-check('12 个工具意图齐全', INTENTS.filter((i) => i.kind === 'tool').length === 12)
+check('14 个工具意图齐全（12 + check_plan + diagnose_mechanism）', INTENTS.filter((i) => i.kind === 'tool').length === 14)
 check('含 none 意图且不可注入', byId('none')?.injectable === false)
 check('无重复 id', new Set(INTENTS.map((i) => i.id)).size === INTENTS.length)
 check('overrides 已生效（check_action_risk 补了口语原型）',
@@ -524,6 +525,25 @@ console.log('\n[11] 文件日志：日期/大小双维轮转 + 级别门 + 易�
   check('原文引号被转义', messy.includes('\\"引号\\"'))
 
   rmSync(root, { recursive: true, force: true })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n[12] stack：P6 堆栈信号（批次 D1）')
+{
+  const jStack = [
+    'Exception in thread "main" java.lang.NoSuchMethodError: com.fasterxml.jackson.databind.ObjectMapper.readValue',
+    '  at com.i2stream.dumper.DumperMain.start(DumperMain.java:88)',
+    'Caused by: java.lang.ClassNotFoundException: com.fasterxml.jackson.databind.JsonMappingException',
+  ].join('\n')
+  const s1 = extractStackSignal(jStack)
+  check('stack：Java 异常链 → exception 信号且指向堆栈 skill',
+    s1?.kind === 'exception' && (s1.tip ?? '').includes(STACK_SKILL), JSON.stringify(s1?.kind))
+  const s2 = extractStackSignal('dmesg: OutOfMemoryError: java heap space')
+  check('stack：OOM → oom 信号', s2?.kind === 'oom', JSON.stringify(s2?.kind))
+  const s3 = extractStackSignal('jstack 抓了下 iatrack 线程： "main" prio=5 tid=native 为 RUNNABLE，在等一把锁')
+  check('stack：jstack/线程头 → thread 信号', s3?.kind === 'thread', JSON.stringify(s3?.kind))
+  check('stack：普通文本不误报', extractStackSignal('增量同步卡住不动了，帮我排查一下') === null)
+  check('stack：空/失败 → null（H-15）', extractStackSignal('') === null)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@
 | 管理面 | 无 | :8643/admin（`$OPS_ADMIN_KEY`，同 ops.env） |
 | 编排 | web-app 原始面（含编码工具） | ops-app 三层裁剪（纯运维面） |
 | preset | standard（现网 profile 内 i2stream-ops 由 ops-api 指定） | i2stream-ops（声明式：profile patch 内 `preset-i2stream-ops` 声明行，作者源 code/presets/i2stream-ops） |
-| 技能目录 | 共享根 /hdd/demo/public/i2stream-bkn/skill | 拷贝 $DSH_HOME/skills（27 项，/admin 可启停） |
+| 技能目录 | 共享根 /hdd/demo/public/i2stream-bkn/skill | 拷贝 $DSH_HOME/skills（39 项，/admin 可启停；由 code/scripts/sync-skills.ts 从 i2stream-bkn/skill 同步） |
 | sessions/记忆 | 现网 key 空间 | 独立 key 空间（试验期请用 i2agent:e2e:* 前缀） |
 
 共享且不动的外部依赖：MemoryCore Gateway :8420（现网 supervisor 托管）、i2agent MCP :8090、Qdrant :6333（embedder 同实例内）。

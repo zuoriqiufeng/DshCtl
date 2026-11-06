@@ -11,6 +11,8 @@ import { ContextLoader } from './contextLoader.ts'
 import { BKNResolver, Section } from './resolver.ts'
 import { RELATION_TYPES, RelationTraverser } from './relations.ts'
 import { checkActionRisk, loadRules, normalizeAction, parseConstraintsDetail } from './riskGuard.ts'
+import { checkPlan } from './planCheck.ts'
+import { diagnoseMechanism } from './mechanism.ts'
 import {
   aggregateResults,
   bm25Search,
@@ -903,6 +905,74 @@ export function buildTools(ctx: Context, deps: { resolver: BKNResolver; traverse
       result._search_deferred = true
       result._severity = 'suggested'
       return result
+    },
+  })
+
+  // ═══════════ Tool 13: check_plan（批次 C1，移植自 plugin/plan_check.py） ═══════════
+
+  registerTool({
+    name: 'check_plan',
+    description: '操作计划可行性核对：按本体已登记动作的 prerequisites 与 constraints 机械核对一串操作的先后能否走通，返回 violations/advisories/todo。当准备按顺序执行多步运维操作、想确认"这串操作能不能这么走"时调用。只做机械核对，不推理不猜。',
+    parameters: {
+      steps: {
+        type: 'array',
+        description: '操作步骤序列：[{action, state}, ...]，action=动作名（如 start_sync_rule/delete_sync_rule），state=该步骤作用对象的当前状态（可选，供首个前置比对）',
+        items: { type: 'object', additionalProperties: true },
+      },
+      states: {
+        type: 'object',
+        additionalProperties: true,
+        description: '已确认的对象状态映射：{对象名: 状态}，如 {"syncrule": "RUNNING"}。未给出的对象进 todo（需人工确认）',
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: renderFor('check_plan'),
+    },
+    async execute(args) {
+      return checkPlan(deps.bknRoot, args ?? {})
+    },
+  })
+
+  // ═══════════ Tool 14: diagnose_mechanism（批次 C2，移植自 plugin/tools.py + mechanisms.yaml） ═══════════
+
+  registerTool({
+    name: 'diagnose_mechanism',
+    description: '机制诊断：把现象（错误码/症状/进程/维度/堆栈混合描述）归入候选机制，逐条按 mechanisms.yaml 判据评估并收敛到 confirmed/unknown/excluded，返回结构判据与处置锚点。当一段多异常/多日志想判断"这是哪种故障机制（资源耗尽级联/控制面数据面失步/单点失败停机/位点回落）"时调用。只读判据表，不自造数据；unknown 是合法答案。',
+    parameters: {
+      entry: {
+        type: 'string',
+        description: '入口：错误码（-NNNN/Ora 码）、症状（incremental_stuck 或口语）、进程（process:xxx）、命名空间节点（symptom:/dimension:/class:）、或堆栈/日志混合文本',
+        required: true,
+      },
+      observations: {
+        type: 'array',
+        items: { type: 'string' },
+        description: '观测条目：[来源]观测 形态（如 "[iatrack] SvcManager service [track:1042] online, but process not found"）。无标签归同一来源（保守）',
+      },
+      affected_unit: {
+        type: 'string',
+        description: '受影响单元（可选）：给了即可把结构判据的"两单元路径"那半步核完（checkable=full）',
+      },
+      max_candidates: {
+        type: 'integer',
+        description: '候选机制上限（默认 4，上限 10）',
+      },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true },
+      render: renderFor('diagnose_mechanism'),
+    },
+    async execute(args) {
+      return Promise.resolve(diagnoseMechanism({
+        bknRoot: deps.bknRoot,
+        resolver: {
+          resolveSynonym: (s: string) => resolver.resolveSynonym(s),
+          normalizeErrorCode: (s: string) => BKNResolver.normalizeErrorCode(s),
+          getRisk: (c: string, m?: string, l?: string) => resolver.getRisk(c, m ?? '', l ?? ''),
+        },
+        traverser,
+      }, (args ?? {}) as { entry?: string; observations?: string[]; affected_unit?: string; max_candidates?: number }))
     },
   })
 }

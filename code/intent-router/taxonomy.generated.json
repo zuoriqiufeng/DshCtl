@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "generatedAt": "2026-10-08",
+  "generatedAt": "2026-11-06",
   "sources": [
-    "tools: plugin-registry/registry.yml（bkn-plugin provides ×12）",
+    "tools: plugin-registry/registry.yml（bkn-plugin provides ×14）",
     "aliases: code/dsh-plugin/constants.ts（SYMPTOM ×56 / ERROR ×20 / DB ×38）",
-    "skills: /hdd/demo/public/dsh-info/.dsh-home/skills（×26）",
-    "manifest: /hdd/demo/public/i2stream-bkn/plugin/skill_manifest.yaml（×26）",
+    "skills: /hdd/demo/public/dsh-info/.dsh-home/skills（×39）",
+    "manifest: /hdd/demo/public/i2stream-bkn/plugin/skill_manifest.yaml（×27）",
     "hotpath: code/presets/i2stream-ops/hotpath.md（症状 → Skill）"
   ],
   "intents": [
@@ -14,7 +14,9 @@
       "kind": "tool",
       "target": "query_product",
       "label": "产品信息查询",
-      "skills": [],
+      "skills": [
+        "i2stream-product-knowledge"
+      ],
       "symptoms": [],
       "errors": [],
       "prototypes": [
@@ -78,7 +80,9 @@
       "kind": "tool",
       "target": "resolve_relation",
       "label": "实体关系查询",
-      "skills": [],
+      "skills": [
+        "i2stream-product-knowledge"
+      ],
       "symptoms": [],
       "errors": [],
       "prototypes": [
@@ -443,7 +447,9 @@
       "kind": "tool",
       "target": "explain_architecture",
       "label": "架构原理",
-      "skills": [],
+      "skills": [
+        "i2stream-product-knowledge"
+      ],
       "symptoms": [],
       "errors": [],
       "prototypes": [
@@ -499,6 +505,71 @@
       "injectable": true
     },
     {
+      "id": "check_plan",
+      "kind": "tool",
+      "target": "check_plan",
+      "label": "操作计划可行性核对",
+      "skills": [
+        "i2stream-rule-manager"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "帮我核对下这串操作的执行顺序",
+        "先检查再删除这样对吗",
+        "做这个操作有问题吗",
+        "这两步能放一起做吗",
+        "按这个顺序操作可以吗",
+        "先停规则再删规则这样走对吗"
+      ],
+      "keywords": [
+        "核对",
+        "顺序",
+        "先后",
+        "计划"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])check_plan(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
+      "id": "diagnose_mechanism",
+      "kind": "tool",
+      "target": "diagnose_mechanism",
+      "label": "机制诊断(根因归类)",
+      "skills": [
+        "i2stream-log-analyzer"
+      ],
+      "symptoms": [],
+      "errors": [],
+      "prototypes": [
+        "这堆日志是什么机制导致的",
+        "是资源耗尽吗",
+        "控制面和数据面对不上",
+        "这个现象是什么机制引起的",
+        "给这个故障做个根因归类",
+        "是内存不足还是链路问题"
+      ],
+      "keywords": [
+        "机制",
+        "根因",
+        "归类",
+        "资源耗尽",
+        "失控"
+      ],
+      "exact": [
+        {
+          "pattern": "re:(?<![A-Za-z0-9_])diagnose_mechanism(?![A-Za-z0-9_])",
+          "slot": "tool"
+        }
+      ],
+      "injectable": true
+    },
+    {
       "id": "diagnose_incremental_stuck",
       "kind": "skill",
       "target": "i2stream-db-diagnostics",
@@ -528,7 +599,7 @@
         "同步停滞",
         "增量延迟",
         "同步延迟大",
-        "i2Stream 多数据库链路诊断平台骨架。支持 Oracle/MySQL/PostgreSQL/SQLServer/DB2/OceanBase。"
+        "i2Stream 多数据库链路诊断平台（骨架 + 逐库子文件 + 检查点索引）。支持 Oracle/MySQL/PostgreSQL/"
       ],
       "keywords": [
         "增量卡住",
@@ -576,7 +647,7 @@
         "数据不同步",
         "数据校验失败",
         "数据差异",
-        "i2Stream 多数据库链路诊断平台骨架。支持 Oracle/MySQL/PostgreSQL/SQLServer/DB2/OceanBase。"
+        "i2Stream 多数据库链路诊断平台（骨架 + 逐库子文件 + 检查点索引）。支持 Oracle/MySQL/PostgreSQL/"
       ],
       "keywords": [
         "数据对不上",
@@ -622,7 +693,7 @@
         "进程崩溃",
         "挂了",
         "报错",
-        "i2Stream 日志分析技能。当用户提供 i2Stream 日志（模板+样本），"
+        "\"i2Stream 日志分析技能，也覆盖其它类型日志。主目的：分析日志得出事故根因，\\n输出现象→证据→根因→影响→建议的结论式分析（默认对话内交付，不主动生成报告；\\n仅用户明确要求时生成分析报告/HTML/回调 POST，走 i2str"
       ],
       "keywords": [
         "崩溃重启",
@@ -671,7 +742,7 @@
         "性能问题",
         "同步慢",
         "延迟高",
-        "i2Stream 日志分析技能。当用户提供 i2Stream 日志（模板+样本），"
+        "\"i2Stream 日志分析技能，也覆盖其它类型日志。主目的：分析日志得出事故根因，\\n输出现象→证据→根因→影响→建议的结论式分析（默认对话内交付，不主动生成报告；\\n仅用户明确要求时生成分析报告/HTML/回调 POST，走 i2str"
       ],
       "keywords": [
         "变慢了",
@@ -685,32 +756,6 @@
         "performance_degradation"
       ],
       "exact": [],
-      "injectable": true
-    },
-    {
-      "id": "env_validation",
-      "kind": "skill",
-      "target": "i2stream-env-validator",
-      "label": "环境校验",
-      "skills": [
-        "i2stream-env-validator"
-      ],
-      "symptoms": [],
-      "errors": [],
-      "prototypes": [
-        "部署前环境与端口合规检查 Skill。负责提供 i2Stream 控制机、工作节点、数据库实例所需的默认端口矩阵、系统参数默认值、字符集/权限检查命令模板，以及防火墙连通性校验动作。"
-      ],
-      "keywords": [
-        "环境",
-        "校验",
-        "检查项",
-        "合规"
-      ],
-      "exact": [
-        {
-          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-env-validator(?![A-Za-z0-9_-])"
-        }
-      ],
       "injectable": true
     },
     {
@@ -809,6 +854,11 @@
       "symptoms": [],
       "errors": [],
       "prototypes": [
+        "license",
+        "许可",
+        "授权",
+        "lic",
+        "认证检查",
         "i2UP 许可",
         "涉及许可/授权/控制台认证（403 Invalid API key 等）时加载",
         "当用户说到\"license\"、\"许可\"、\"lic\"、\"授权\"、\"认证检查\"、\"auth\"、\"登录检查\"时使用。查询 i2UP 可用 License 及控制台认证。"
@@ -816,7 +866,9 @@
       "keywords": [
         "许可",
         "license",
-        "授权"
+        "授权",
+        "lic",
+        "认证检查"
       ],
       "exact": [
         {
@@ -928,31 +980,6 @@
       "exact": [
         {
           "pattern": "re:(?<![A-Za-z0-9_-])i2stream-sql-generator(?![A-Za-z0-9_-])"
-        }
-      ],
-      "injectable": true
-    },
-    {
-      "id": "topology_view",
-      "kind": "skill",
-      "target": "i2stream-topology-visualizer",
-      "label": "拓扑可视化",
-      "skills": [
-        "i2stream-topology-visualizer"
-      ],
-      "symptoms": [],
-      "errors": [],
-      "prototypes": [
-        "i2Stream 部署拓扑渲染 Skill。负责根据用户输入生成带具体端口、路径、进程矩阵的拓扑图与部署说明。BKN 中只保留拓扑语义与 Skill 指针，所有具体端口/路径默认值由本 Skill 维护。"
-      ],
-      "keywords": [
-        "拓扑",
-        "架构图",
-        "画图"
-      ],
-      "exact": [
-        {
-          "pattern": "re:(?<![A-Za-z0-9_-])i2stream-topology-visualizer(?![A-Za-z0-9_-])"
         }
       ],
       "injectable": true

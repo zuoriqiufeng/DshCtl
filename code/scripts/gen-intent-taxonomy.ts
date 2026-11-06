@@ -2,7 +2,7 @@
 /**
  * gen-intent-taxonomy.ts — 生成 intent-router 的意图体系基线（taxonomy.generated.json）
  *
- * 为什么是生成而不是手写：意图的原型语料散落在已有资产里——12 个 BKN 工具的语义、
+ * 为什么是生成而不是手写：意图的原型语料散落在已有资产里——14 个 BKN 工具的语义、
  * skill_manifest 的 capability / load_criterion、各 SKILL.md 的 description 与 triggers
  * （宿主从不消费 triggers，属闲置语料）、constants.ts 的口语别名表、hotpath 的症状→Skill 映射。
  * 手抄一遍必然随上游漂移，所以「派生部分全部生成、只有措辞部分手工维护」。
@@ -30,7 +30,7 @@ const SKILLS_DIR = '/hdd/demo/public/dsh-info/.dsh-home/skills'
 const OUT_PATH = resolve(import.meta.dirname, '..', 'intent-router', 'taxonomy.generated.json')
 
 /**
- * 12 个 BKN 工具对应的意图（人工维护：标签、原型问法、关联 Skill）。
+ * 14 个 BKN 工具对应的意图（人工维护：标签、原型问法、关联 Skill）。
  * prototypes 是 BM25/向量的打分语料，写「运维工程师会怎么问」而不是工具文档的措辞。
  */
 const TOOL_INTENTS: Array<Pick<IntentDef, 'id' | 'target' | 'label' | 'skills' | 'prototypes' | 'keywords'>> = [
@@ -143,6 +143,24 @@ const TOOL_INTENTS: Array<Pick<IntentDef, 'id' | 'target' | 'label' | 'skills' |
     ],
     keywords: ['检索', '资料', '文档', '知识库'],
   },
+  {
+    id: 'check_plan', target: 'check_plan', label: '操作计划可行性核对',
+    skills: ['i2stream-rule-manager'],
+    prototypes: [
+      '帮我核对下这串操作的执行顺序', '先检查再删除这样对吗', '做这个操作有问题吗',
+      '这两步能放一起做吗', '按这个顺序操作可以吗', '先停规则再删规则这样走对吗',
+    ],
+    keywords: ['核对', '顺序', '先后', '计划'],
+  },
+  {
+    id: 'diagnose_mechanism', target: 'diagnose_mechanism', label: '机制诊断(根因归类)',
+    skills: ['i2stream-log-analyzer'],
+    prototypes: [
+      '这堆日志是什么机制导致的', '是资源耗尽吗', '控制面和数据面对不上',
+      '这个现象是什么机制引起的', '给这个故障做个根因归类', '是内存不足还是链路问题',
+    ],
+    keywords: ['机制', '根因', '归类', '资源耗尽', '失控'],
+  },
 ]
 
 /**
@@ -156,11 +174,9 @@ const TOOL_INTENTS: Array<Pick<IntentDef, 'id' | 'target' | 'label' | 'skills' |
  * Skill 比不推更糟，所以这里以「实际部署」为准，而不是以 manifest 为准。
  */
 const SKILL_ONLY: Array<{ skill: string; id: string; label: string; keywords: string[] }> = [
-  { skill: 'i2stream-env-validator', id: 'env_validation', label: '环境校验', keywords: ['环境', '校验', '检查项', '合规'] },
   { skill: 'i2stream-iadebug', id: 'process_debug', label: '进程级调试', keywords: ['iadebug', '位点', '日志级别', '强制恢复'] },
   { skill: 'i2stream-list-lic', id: 'license_query', label: '许可查询', keywords: ['许可', 'license', '授权'] },
   { skill: 'i2stream-sql-generator', id: 'sql_generation', label: 'SQL 生成', keywords: ['生成SQL', '建表语句', 'DDL'] },
-  { skill: 'i2stream-topology-visualizer', id: 'topology_view', label: '拓扑可视化', keywords: ['拓扑', '架构图', '画图'] },
 ]
 
 /**
@@ -225,7 +241,7 @@ function build(): { intents: IntentDef[]; sources: string[]; skippedSkills: stri
 
   const intents: IntentDef[] = []
 
-  // ① 12 个工具意图
+  // ① 14 个工具意图
   const dbNames = uniq([...KNOWN_DBS, ...Object.values(DB_ALIASES)])
   for (const spec of TOOL_INTENTS) {
     const exact: ExactRule[] = [{ pattern: `re:(?<![A-Za-z0-9_])${spec.target}(?![A-Za-z0-9_])`, slot: 'tool' }]

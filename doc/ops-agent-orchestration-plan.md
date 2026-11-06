@@ -28,7 +28,7 @@
     │  ┌────────────────────────────────────────────────┐ │
     │  │ i2stream-ops preset（纯运维会话）                │ │
     │  │  persona(热路径) + BKN 12工具 + i2agent MCP      │ │
-    │  │  + skill目录(27项) + 记忆工具 + RiskGuard 护栏   │ │
+    │  │  + skill目录(39项) + 记忆工具 + RiskGuard 护栏   │ │
     │  └────────────────────────────────────────────────┘ │
 管理员 → /admin 管理页 ────────────┤  /admin REST：MCP CRUD / skill 开关       │
     │       / 工具清单 / preset 查看 / 系统状态          │
@@ -103,7 +103,7 @@ ops-app 同时对 base 的编码能力行逐个 disable（id 以源码实际行�
 
 ### 2.3 ops preset（i2stream-ops）升级为「默认运维 preset」
 
-- agent.cordis.yml 增挂：skill-filesystem（customSkillDirs: [/hdd/demo/public/i2stream-bkn/skill]，27 个 SKILL.md）+ tool-skill。
+- agent.cordis.yml 增挂：skill-filesystem（customSkillDirs: [/hdd/demo/public/i2stream-bkn/skill]，39 个 SKILL.md）+ tool-skill。技能由 code/scripts/sync-skills.ts 从 i2stream-bkn/skill 同步到 $DSH_HOME/skills。
 - agent-presets 配置：default: i2stream-ops（Web 新会话默认即运维面）。
 - persona 已含热路径知识（gen-hotpath-prompt.ts 生成，机制保持）。
 

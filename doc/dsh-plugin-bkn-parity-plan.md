@@ -1,6 +1,7 @@
 # dsh-plugin × i2stream-bkn 对齐计划（2026-11-06）
 
-> 2026-11-06 · 状态：**已评审，开始实施**（用户裁定「按建议做」：工具 C1+C2 都做、bkn_ask 不移植、技能全量 39+删 6 陈旧、测试取关键契约断言+抽样同比）
+> 2026-11-06 · 状态：**✅ 已实施 + 验收结果回填**（批次 A + A5 + B + D + C1 + C2 全绿，CI/check/live 只读面已验）
+> 用户裁定（实施前定）：工具 C1+C2 都做、bkn_ask 不移植、技能全量 39+删 6 陈旧、测试取关键契约断言+抽样同比。
 > 触发：共享仓 i2stream-bkn 自 2026-10-21 后又落 10 个提交（P1-P6 开放入口、机制层 Tool 13、BUG-0009 码义兜底、进程实体补缺），TS 侧未跟进 → 本次按当前状态对齐。
 > 纪律：i2stream-bkn **只读**（只按它当前状态实现 dsh 侧逻辑，不提交/不修改/不代管）。
 
@@ -113,9 +114,29 @@
 | A2 导航层口径 | ✅ `DIAG_RETRIEVAL_GUIDE` = `store:i2stream_collection#错误码 → store:log_patterns_collection#错误码`；新增 `DIAG_EVIDENCE_COLLECTION` 承内部兜底，`pattern_library_entry` 由该常量派生（消除双源） |
 | A3 BUG-0009 B 码义兜底 | ✅ 7 码同题同比 py 逐条一致：-4071/-4002 走官方含义（src=code）；-4073、4217(→-4217) 走 `code_row_exact`（src=qdrant_code_row，码义「没有找到相应规则」/「对象比较任务详细信息」）；ORA1555、-9999 维持 unknown（非产品码 / 码表无此项，静默） |
 | A4 未登记码处理文案 | ✅ `UNKNOWN_RULE` 对齐 py「①带消息文本重问 ②主库纯代号直查 ③模式库查处置 ④gap_log」 |
-| A5 码来源提示 | ⏭ 本批未做（`code_origin.yaml` 厂商表解析留待与 C 批一并处理；A3 已覆盖「未登记码给码义」的主诉求） |
-| self-test | ✅ 168 → **186** 断言，ALL PASSED（新增 8 条：码义兜底三态 + 双常量 + 进程 10 个 + 架构收录） |
-| CI | ✅ `ci.sh` 九环节 ALL GREEN（26 passed / 0 failed） |
+| A5 码来源提示 | ✅ `code/dsh-plugin/codeOrigin.ts`（A5，与 C 批一并做）：解析 `plugin/code_origin.yaml`（rules+message_rules）＋产品码判定复用 `loadErrorCodes` 表（与 A3 同源防漂移）；`classifyCode` 只做来源/形状（product/厂商/ambiguous/unknown），不解含义；接入 `getRisk` unknown 且未走 code_row_exact 分支把 origin/提示拼进 needs，不覆盖已识别语义。self-test：ORA→oracle、1062→ambiguous、-4002→product、FOOBAR9→unknown+hint、-9999 needs 含歧义提示 |
+| self-test | ✅ A 批 168 → **186** 断言 ALL PASSED（原批次）+ A5 新增 5 条全绿 |
+| CI | ✅ A 批 `ci.sh` 九环节 ALL GREEN（26 passed / 0 failed） |
+
+### 批次 A5 + B + D + C（2026-11-06，Lead 并行 + teammate 分工实施）
+
+| 项 | 结果 |
+|---|---|
+| A5 码来源提示 | ✅ 见上（`codeOrigin.ts` + resolver 接入；self-test [2] A5 五断言） |
+| B1 技能同步 39/0 | ✅ teammate：新建 `code/scripts/sync-skills.ts` 复用 `ops.ts syncSkill`，从 i2stream-bkn/skill 同步 **39/0 成功** 到 `$DSH_HOME/skills` |
+| B2 删 6 陈旧 | ✅ 删除 i2stream-bkn-plugin/-test/-updater/-i2agent-coop、i2stream-env-validator、i2stream-topology-visualizer；删前 grep 命中仅 doc 历史/计划文本（completion-plan:100、本 plan:20），presets/manual 无引用；最终 **39 技能目录** + requirements.txt，无旧名残留 |
+| B3 意图重生成 | ✅ `gen-intent-taxonomy.ts` 增 `check_plan`/`diagnose_mechanism` 两条 tool 意图（14 tool）、删 SKILL_ONLY 的 env_validation/topology_view；重生成 `taxonomy.generated.json`=22 条（14 tool+7 skill+1 none）；`--check` 退出码 0 |
+| B3 eval 回归 | ✅ `eval-intent` **37 例 / 采纳率 87.5%（21/24）≥85% / 意图错判 0 / 误采纳 0**，退出码 0。注：`check_plan` 关键词"能不能"会误采纳既有 reject 用例，已改措辞保 eval 硬线；改 questions.json：删 topology_view、env_validation 改标 get_prerequisites、新增 2 条 accept 用例 |
+| B4 文档口径 | ✅ manual/orchestration-plan 技能数 27→39 + 补 sync 来源说明（历史实测"26 个"行保留） |
+| D1 堆栈信号 | ✅ `code/intent-router/stack.ts`（异常链/OOM/线程状态三类，单类静默）+ index.ts pre-step 命中即注入 `stack_tip`→skill:i2stream-stack-analysis（**不路由工具**，守 py 54 号 C 契约）；命中压过意图注入。self-test [12] 5 断言 |
+| D2 混合输入分段 | ✅ `resolver.ts` `looksLikeStack`（dsh-plugin 自带判据，不跨插件 import）；堆栈输入 → needs 含 stack-analysis 指引（非裸「未识别」），普通错误码不触发。self-test [13] 2 断言 |
+| C1 check_plan | ✅ `code/dsh-plugin/planCheck.ts`（对齐 py plan_check.py）：解析 `bkn/actions/*.bkn` 段（aliases/prereq/constraints/capability）＋`parseConstraintsDetail` 复用；输入 **steps[]+states{}**（py 契约）；支持按 capability 名寻址；输出 {ok,checked_steps,violations,advisories,todo}。self-test [12] 5 断言 |
+| C2 diagnose_mechanism | ✅ `code/dsh-plugin/mechanism.ts`（零依赖 YAML 子集解析 mechanisms.yaml；manifests_as 专属解析 mechanism_causality.bkn，**不注册进全局 RELATION_TYPES**；structural 判据走 traverser 5 声明边 + affected_unit 双向 BFS）；五段输出契约。self-test [13] 7 断言 |
+| 工具注册 | ✅ tools.ts 增注册 `check_plan` + `diagnose_mechanism`；registry.yml `provides` +2；live `/v1/capabilities` tools **19→21** |
+| self-test | ✅ dsh-plugin（增量）ALL PASSED；intent-router（增量）**122 passed / 0 failed**；九插件 self-test 全绿 |
+| CI | ✅ `bash code/dshctl/ci.sh` 九环节 **ALL GREEN**（26 passed / 0 failed） |
+| check | ✅ `dshctl check ops --ci` 0 error / 0 warn → PASS（R12 全过） |
+| live 只读面 | ✅ apply→restart 后 `/v1/capabilities` 200 & tools.count=21（12+2+7 既有 BKN 工具之外的 capture/resolve+check_plan/diagnose_mechanism）；skills 39 目录；无 startup 新报错。端到端对话（bench-4q/capture_correction 真实调用）仍受模型网关空 `/v1/models` 阻塞挂账 |
 
 ## 7. 决策记录
 
@@ -125,7 +146,13 @@
 | 2 | `bkn_ask` 是否移植 | **不移植** | 与 DSH「模型自选工具 + intent-router 注入」架构重复；依赖 ask_router 整层（1023 行）；确需另立专项 |
 | 3 | 技能同步口径 | **全量 39 + 删 6 陈旧** | 与上游一致，保留 7 个 BKN 开发参考技能 |
 | 4 | 测试深度 | **关键契约断言 + 抽样同比** | 不逐条镜像 py 911 条；关键路径有断言 + 同题比对即可 |
+| 5 | `check_plan` 输入 schema | **采用 py 契约 `steps[] + states{}`**，非报告 §2 宽松写法的 `{action,state}` | `plan_check.py:76-111` 即是 steps/states；语义对齐必须与 py 同形 |
+| 6 | manifests_as 候选召回 | **mechanism.ts 专用解析 `mechanism_causality.bkn`**，不注册进全局 RELATION_TYPES | report §3「不新增边类型注册」红线 + 全局 24 类/存量断言不变 |
 
 ## 8. 踩坑沉淀
 
-（实施中登记：症状 / 根因 / 修复）
+| 症状 | 根因 | 修复 |
+|---|---|---|
+| A5 判定 -4002 未命中 product（origin 落到 ambiguous） | 初版 isProductCode 用 `^\s*-\s*code:` 行正则，但 error_codes.yaml 是 `- define:` + 2 空格缩进 `code:`，正则扫不到 | 改复用 `loadErrorCodes` 已按 code/-code/define 三键建的索引表（与 A3 码义兜底同源，防双源漂移） |
+| check_plan 的 start_sync_rule 约束一直空（advisory 为空） | `start_sync_rule` 是 `capability:` 字段，不在 aliases 里；`_resolve` 只按 name/别名找 → 落到 todo「未登记」 | `ActionSeg` 解析 `capability:` 并在 `_resolve` 匹配 capability 名（py 只认 name/别名，为可用性扩了 capability 寻址，行为向后兼容） |
+| `interop`：`gen-intent-taxonomy` 原始建议给 check_plan 关键词"能不能" | 与既有 reject 用例「帮我看看这个需求能不能实现」BM25 重叠 → 误采纳 | 改原型措辞、去掉"能不能"，保住 eval 硬线（0 误采纳） |

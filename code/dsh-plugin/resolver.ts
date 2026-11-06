@@ -34,6 +34,7 @@ import {
 } from './constants.ts'
 import { RelationTraverser } from './relations.ts'
 import { classifyErrorMessage, officialMeaningFor, loadErrorSemantics, loadErrorCodes } from './errorSemantics.ts'
+import { classifyCode } from './codeOrigin.ts'
 
 /**
  * 码的机械归一（对齐 py code_rows.normalize_code）：4217 → -4217；ORA1555 → ORA-01555；其它原样。
@@ -45,6 +46,11 @@ function normalizeProductCode(raw: string): string {
   const m = /^(ORA|YAS)-?(\d{4,5})$/i.exec(s)
   if (m) return m[1].toUpperCase() + '-' + m[2].padStart(5, '0')
   return s
+}
+
+/** 批次 D2（P6 混合输入）：输入是否呈现"堆栈/异常链/线程状态"特征（dsh-plugin 自带判据，不跨插件 import）。 */
+function looksLikeStack(text: string): boolean {
+  return /Exception in thread|caused\s*by:\s*[\w.$]+(?:Exception|Error)|java\.lang\.[\w.$]+(?:Exception|Error)|outofmemoryerror|exception\s+in\s+thread|\bjstack\b|"[\w.-]+"[\s\S]{0,40}?prio=\d+|\b(?:waiting|blocked|runnable)\b[^a-z]{0,30}?\block\b/i.test(text ?? '')
 }
 
 export interface Table {
@@ -1075,6 +1081,28 @@ export class BKNResolver {
       }
     }
     if (!processes.length) needs.push('日志来源（该码出现在哪个进程的日志——给出即可确定嫌疑进程）')
+    // 批次 A5（code_origin 码来源提示，对齐 BUG-0009 导航）：dimension:unknown 且未走码义兜底时，
+    // 对输入码/消息做「来源/形状」分类，把 origin/提示附加到 needs——只作导航，不覆盖已识别语义；
+    // H-15：任何异常静默，不影响返回。
+    if (dim === 'dimension:unknown' && meaningSource !== 'qdrant_code_row' && (clean || msg)) {
+      try {
+        const origin = classifyCode(this.root, clean, msg, ls)
+        if (!origin.ambiguous && origin.origin && origin.origin !== 'unknown') {
+          needs.push(
+            `错误码来源形状：${origin.origin}${origin.vendor ? '（' + origin.vendor + '）' : ''}。` +
+              (origin.origin === 'product'
+                ? '这是 i2Stream 产品码——请用主库码表（error_codes.yaml）直查具体含义。'
+                : '这是数据库原生码——建议走 diagnose_db_link 按该库排查。'),
+          )
+        } else if (origin.hint) {
+          needs.push(origin.hint)
+        }
+      } catch { /* A5 提示失败静默 */ }
+    }
+    // 批次 D2（P6 混合输入）：msg/清洁码含堆栈特征 → 明确指引而非「未识别」；只影响提示，不改键。
+    if (looksLikeStack(msg) || looksLikeStack(clean)) {
+      needs.push('输入含堆栈特征——建议加载 skill:i2stream-stack-analysis 按堆栈流程解析根因，不要只凭错误码判断。')
+    }
     const info = {
       error_code: clean,
       retrieval_guide: DIAG_RETRIEVAL_GUIDE,

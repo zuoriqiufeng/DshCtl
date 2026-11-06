@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 import { BKNResolver, bknWalkIssues } from './resolver.ts'
 import { validateBknContract, handleContractResult, CONTRACT_MIN_GENERATION } from './bknContract.ts'
 import { DIAG_EVIDENCE_COLLECTION, DIAG_RETRIEVAL_GUIDE, PROCESS_IDS } from './constants.ts'
+import { classifyCode } from './codeOrigin.ts'
 import { RelationTraverser } from './relations.ts'
 import { ContextLoader, ToonFormatter, TrimFilter } from './contextLoader.ts'
 import {
@@ -149,6 +150,23 @@ const resolver = new BKNResolver(BKN_ROOT)
   check('架构输出收录新进程（本体派生，非硬编码清单）',
     archText.includes('process:iamss') && archText.includes('process:pgtrack') && archText.includes('process:pgreplicator'),
     'procs=' + String((arch as { processes?: unknown[] }).processes?.length ?? 'n/a'))
+  // ── 批次 A5（code_origin 码来源提示，对齐 BUG-0009 导航）──
+  const o1 = classifyCode(BKN_ROOT, 'ORA-04031')
+  check('A5 code_origin：ORA 前缀 → origin=oracle（数据库原生码，规则命中）',
+    o1.origin === 'oracle' && !o1.ambiguous, JSON.stringify(o1))
+  const o2 = classifyCode(BKN_ROOT, '1062')
+  check('A5 code_origin：裸数字 4-5 位 → ambiguous（需 message/db_type 才能落定）',
+    o2.origin === 'ambiguous' && o2.ambiguous, JSON.stringify(o2))
+  const o3 = classifyCode(BKN_ROOT, '-4002')
+  check('A5 code_origin：产品码命中 error_codes.yaml → origin=product',
+    o3.origin === 'product', JSON.stringify(o3))
+  const o4 = classifyCode(BKN_ROOT, 'FOOBAR9')
+  check('A5 code_origin：未知 → origin=unknown + hint（不解释含义，H-15 静默）',
+    o4.origin === 'unknown' && Boolean(o4.hint), JSON.stringify(o4))
+  const rk9999 = resolver.getRisk('-9999')
+  const needs9999 = (rk9999?.needs ?? []) as string[]
+  check('A5 集成：unknown 分支附 code_origin 歧义提示（needs 含来源形状，解析不抛）',
+    needs9999.some((n) => n.includes('无法单凭码形断言来源')), JSON.stringify(needs9999))
 }
 
 console.log('\n[3] riskGuard.ts 规则与决策')
@@ -692,6 +710,75 @@ console.log('\n[11] 外部依赖配置化：config > env > 常量 + 运行期注
     check('hotpath 防漂移：含 capture_correction 触达行', hp.includes('capture_correction'), hp.slice(-200))
     check('hotpath 防漂移：高频操作段非空', hp.includes('【高频操作 → Skill 绑定】') && hp.includes('→ Skill:'))
   }
+}
+
+console.log('\n[12] check_plan（批次 C1，对齐 plugin/plan_check.py）')
+{
+  const { checkPlan } = await import('./planCheck.ts')
+  const v = checkPlan(BKN_ROOT, { steps: [{ action: 'compare_table', state: 'RUNNING' }], states: {} })
+  check('check_plan：首前置取 step.state 命中（rule must be RUNNING）',
+    v.ok === true && v.violations.length === 0, JSON.stringify(v))
+  const v2 = checkPlan(BKN_ROOT, { steps: [{ action: 'create_compare', state: 'STOPPED' }], states: {} })
+  check('check_plan：RUNNING 前置违例 → violation + ok=false',
+    !v2.ok && v2.violations.length >= 1 && String(v2.violations[0].message).includes('rule'),
+    JSON.stringify(v2.violations))
+  const v3 = checkPlan(BKN_ROOT, { steps: [{ action: 'start_sync_rule', state: 'STOPPED' }], states: {} })
+  check('check_plan：启动动作约束 → advisory（rule_must_be_STOPPED 在位）',
+    v3.ok && v3.advisories.some((a) => a.constraint === 'rule_must_be_STOPPED'),
+    JSON.stringify(v3.advisories))
+  const v4 = checkPlan(BKN_ROOT, { steps: [{ action: 'not_a_real_action' }], states: {} })
+  check('check_plan：未登记动作 → todo（需人工确认）',
+    v4.ok && v4.todo.some((t) => String(t.why).includes('未在本体登记')), JSON.stringify(v4.todo))
+  const v5 = checkPlan(BKN_ROOT, { steps: [{ action: 'create_compare' }], states: { rule: 'RUNNING', target: 'accessible' } })
+  // source 未给状态但首前置(rule)已命中 → source 进 todo；两前置均已满足 → 无 violation
+  check('check_plan：states 补齐后无违例（未给 source 进 todo）',
+    v5.ok && v5.violations.length === 0, JSON.stringify({ v: v5.violations, t: v5.todo }))
+}
+
+console.log('\n[13] diagnose_mechanism（批次 C2，对齐 tools.py + mechanisms.yaml）')
+{
+  const { diagnoseMechanism } = await import('./mechanism.ts')
+  const deps = {
+    bknRoot: BKN_ROOT,
+    resolver: {
+      resolveSynonym: (s: string) => resolver.resolveSynonym(s),
+      normalizeErrorCode: (s: string) => BKNResolver.normalizeErrorCode(s),
+      getRisk: (c: string, m?: string, l?: string) => resolver.getRisk(c, m ?? '', l ?? ''),
+    },
+    traverser,
+  }
+  const cOf = (r: Record<string, unknown>) => (r.candidates as Array<{ id: string }>).map((x) => x.id)
+  const stOf = (r: Record<string, unknown>, id: string) => (r.candidates as Array<{ id: string; state: string }>).find((x) => x.id === id)?.state
+  const r1 = diagnoseMechanism(deps as { resolver: never }, { entry: 'dimension:state_machine' } as never)
+  check('mechanism：候选经 manifests_as 收窄含 control_plane_desync/single_point_fail_stop',
+    cOf(r1).includes('control_plane_desync') && cOf(r1).includes('single_point_fail_stop'), JSON.stringify(cOf(r1)))
+  const r2 = diagnoseMechanism(deps as { resolver: never }, { entry: 'symptom:incremental_stuck' } as never)
+  check('mechanism：symptom 收窄 → control_plane_desync',
+    cOf(r2).includes('control_plane_desync'), JSON.stringify(cOf(r2)))
+  const r3 = diagnoseMechanism(deps as { resolver: never }, { entry: 'control_plane_desync', observations: ['[iatrack] SvcManager service [track:1042] online, but process not found'] } as never)
+  check('mechanism：仅软证据命中 → 只能到 unknown（hard_cap）',
+    stOf(r3, 'control_plane_desync') === 'unknown', String(stOf(r3, 'control_plane_desync')))
+  const r4 = diagnoseMechanism(deps as { resolver: never }, { entry: 'control_plane_desync', observations: ['[iatrack] jps：iatrack 进程存在，规则同步正常', '[console] 控制面与数据面一致'] } as never)
+  check('mechanism：counter_patterns 全中 → excluded（留档不静默丢弃）',
+    stOf(r4, 'control_plane_desync') === 'excluded', String(stOf(r4, 'control_plane_desync')))
+  const r5 = diagnoseMechanism(deps as { resolver: never }, { entry: 'symptom:incremental_stuck' } as never)
+  check('mechanism：无观测 → gaps 含"未提供任何观测"（unknown 合法答案）',
+    (r5.evidence_gaps as string[]).some((g) => g.includes('未提供任何观测')), JSON.stringify(r5.evidence_gaps))
+  const chk = (r: Record<string, unknown>) => (r.structural_evidence as Array<{ checkable: string }>).map((s) => s.checkable)
+  const r6 = diagnoseMechanism(deps as { resolver: never }, { entry: 'process:iatrack', affected_unit: 'syncrule' } as never)
+  check('mechanism：给了 affected_unit → 结构判据 checkable=full',
+    chk(r6).length > 0 && chk(r6).every((c) => c === 'full'), JSON.stringify(chk(r6)))
+  const r7 = diagnoseMechanism(deps as { resolver: never }, { entry: 'process:iatrack' } as never)
+  check('mechanism：缺 affected_unit → 结构判据 checkable=partial（两单元半步须人给端点）',
+    chk(r7).length > 0 && chk(r7).every((c) => c === 'partial'), JSON.stringify(chk(r7)))
+  // ── 批次 D2（P6 混合输入）：堆栈输入给明确指引而非「未识别」──
+  const stk = 'Exception in thread "main" java.lang.NoSuchMethodError\n  at com.i2stream.dumper.DumperMain.start(DumperMain.java:88)'
+  const rkStack = resolver.getRisk('', stk)
+  check('D2：堆栈输入 → needs 含 stack-analysis 堆栈指引（非裸"未识别"）',
+    (rkStack?.needs ?? []).some((n) => String(n).includes('i2stream-stack-analysis')), JSON.stringify(rkStack?.needs))
+  const rkNormal = resolver.getRisk('-4073')
+  check('D2：普通错误码不加堆栈指引（只对堆栈特征生效）',
+    !(rkNormal?.needs ?? []).some((n) => String(n).includes('i2stream-stack-analysis')))
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)

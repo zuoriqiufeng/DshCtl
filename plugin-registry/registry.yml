@@ -17,6 +17,9 @@ plugins:
       - design_solution
       - explain_architecture
       - search_qdrant
+      # 2026-11-06 对齐批次：check_plan（操作可行性）+ diagnose_mechanism（机制诊断/根因归类）
+      - check_plan
+      - diagnose_mechanism
     tier: extension
     category: 知识网
     source: local

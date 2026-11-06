@@ -160,15 +160,9 @@
     },
     {
       "q": "部署前需要检查哪些系统参数",
-      "expect": "env_validation",
+      "expect": "get_prerequisites",
       "mode": "accept",
-      "note": "环境校验"
-    },
-    {
-      "q": "现在这套集群的拓扑结构是什么样的",
-      "expect": "topology_view",
-      "mode": "accept",
-      "note": "拓扑查看"
+      "note": "前置条件"
     },
     {
       "q": "OMS 和 i2Stream 是什么关系",
@@ -205,6 +199,18 @@
       "expect": "resolve_operation",
       "mode": "accept",
       "note": "生命周期操作变体"
+    },
+    {
+      "q": "帮我把这串操作的执行顺序核对一下，这样走对吗",
+      "expect": "check_plan",
+      "mode": "accept",
+      "note": "操作计划可行性核对（新增工具意图）"
+    },
+    {
+      "q": "这堆日志是什么机制导致的，是资源耗尽吗",
+      "expect": "diagnose_mechanism",
+      "mode": "accept",
+      "note": "机制诊断/根因归类（新增工具意图）"
     }
   ]
 }
