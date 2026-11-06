@@ -20,6 +20,7 @@ import {
   DB_ALIASES,
   DELEGATIONS,
   DELEGATION_QDRANT_HINT,
+  DIAG_EVIDENCE_COLLECTION,
   DIAG_RETRIEVAL_GUIDE,
   DIMENSION_ALIASES,
   ERROR_ALIASES,
@@ -33,6 +34,18 @@ import {
 } from './constants.ts'
 import { RelationTraverser } from './relations.ts'
 import { classifyErrorMessage, officialMeaningFor, loadErrorSemantics, loadErrorCodes } from './errorSemantics.ts'
+
+/**
+ * 码的机械归一（对齐 py code_rows.normalize_code）：4217 → -4217；ORA1555 → ORA-01555；其它原样。
+ * 用途：BUG-0009 B 码义兜底前把「产品码纯代号」规范成码表键形。
+ */
+function normalizeProductCode(raw: string): string {
+  const s = (raw ?? '').trim()
+  if (/^\d{4}$/.test(s)) return '-' + s
+  const m = /^(ORA|YAS)-?(\d{4,5})$/i.exec(s)
+  if (m) return m[1].toUpperCase() + '-' + m[2].padStart(5, '0')
+  return s
+}
 
 export interface Table {
   header: string[]
@@ -91,8 +104,8 @@ export interface RiskInfo {
   unknown_rule: string
   /** 62/63 号链路：语义类别命中结果（rule/dimension/guide/skill/evidence） */
   meaning?: { rule: string; dimension: string; guide: string; skill: string; evidence: string }
-  /** meaning 来源：message（现场文本）| code（官方含义） */
-  meaning_source?: 'message' | 'code'
+  /** meaning 来源：message（现场文本）| code（官方含义）| qdrant_code_row（BUG-0009 B 码义兜底） */
+  meaning_source?: 'message' | 'code' | 'qdrant_code_row'
   /** 官方含义与仓内证据的冲突说明（status=区分/待现场复核 时非空） */
   conflicts?: string[]
   /** 语义类别 → 诊断 Skill（dimension --diagnosed_by--> skill 边） */
@@ -1026,7 +1039,27 @@ export class BKNResolver {
     const aliases = Object.entries(ERROR_ALIASES).filter(([, c]) => c === clean).map(([a]) => a)
     const conflicts: string[] = []
     const meaning = msg ? classifyErrorMessage(sem, msg) : officialMeaningFor(sem, codes, clean, conflicts)
-    const meaningSource: 'message' | 'code' = msg ? 'message' : 'code'
+    let meaningSource: 'message' | 'code' | 'qdrant_code_row' = msg ? 'message' : 'code'
+    // BUG-0009 B（对齐 py resolver.get_risk）：语义规则未命中（dimension:unknown）且是产品码（-NNNN）时，
+    // 从本地码表侧车 error_codes.yaml 确定性取中文义——不依赖 Qdrant 索引状态，输出字节级稳定；
+    // 任何异常静默，维持原 unknown 返回（不放大故障）。
+    if (meaning.dimension === 'dimension:unknown') {
+      try {
+        const norm = normalizeProductCode(clean)
+        if (/^-\d{4,5}$/.test(norm)) {
+          const entry = codes[norm] ?? codes[norm.replace(/^-/, '')]
+          const zh = String(entry?.meaning ?? '').trim()
+          if (zh) {
+            meaning.semantic_rule = meaning.rule
+            meaning.rule = 'code_row_exact'
+            meaning.exact_code = norm
+            meaning.exact_meaning = zh
+            meaning.evidence = '主库码表精确命中（定义侧车 error_codes.yaml）'
+            meaningSource = 'qdrant_code_row'
+          }
+        }
+      } catch { /* 兜底失败不放大：维持 unknown */ }
+    }
     const dim = meaning.dimension
     const traverser = this.getTraverser()
     const diagnosedSkills = dim ? traverser.getTargets(dim, 'diagnosed_by') : []
@@ -1542,7 +1575,8 @@ export class BKNResolver {
       chain: chainIds.map((p) => short(p)),
       level_tuning: LOG_LEVEL_TUNING,
       process_duties: processDuties,
-      pattern_library_entry: 'search_qdrant(collection=log_patterns_collection, dimension=日志模式)',
+      // 内部兜底口径（DIAG_EVIDENCE_COLLECTION）：集合名由常量派生，避免与 Agent 指引双源漂移
+      pattern_library_entry: `search_qdrant(collection=${DIAG_EVIDENCE_COLLECTION.replace(/^store:/, '').replace(/#.*$/, '')}, dimension=日志模式)`,
       derived_from: 'bkn:relations/process_topology.bkn#suspected_in + bkn:objects/*.bkn#关键属性',
       note: '23 号方案：症状→日志顺序由 suspected_in/feeds 边与进程属性派生（本体层），' +
         '跨进程对照的根因速查见 skill:i2stream-log-analyzer。',

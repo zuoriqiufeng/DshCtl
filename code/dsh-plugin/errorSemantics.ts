@@ -50,6 +50,10 @@ export interface Meaning {
   guide: string
   skill: string
   evidence: string
+  /** BUG-0009 B：码义兜底字段（仅 dimension:unknown 且 -NNNN 产品码命中码表时出现） */
+  semantic_rule?: string
+  exact_code?: string
+  exact_meaning?: string
 }
 
 const FALLBACK_DIM = 'dimension:unknown'

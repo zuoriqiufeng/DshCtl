@@ -80,6 +80,8 @@ export const DB_ERROR_PREFIXES: Record<string, string> = {
 // 用途：resolver 识别进程对象、lint 做「常量集 ↔ objects/<id>.bkn 存在性」一致性校验。
 export const PROCESS_IDS = [
   'iatrack', 'iadumper', 'ialoader', 'iahelper', 'iamonitor', 'iadiff', 'iaproxy',
+  // 2026-11-06（对齐 i2stream-bkn 2026-10-30 进程实体补缺）：PG 源端采集/翻译 + SQL Server 源端采集
+  'iamss', 'pgreplicator', 'pgtrack',
 ] as const
 
 // ── 诊断域值数据（25 号：自 BKN 别名下沉，与 DB_ALIASES 同层）─────────────
@@ -156,11 +158,17 @@ export const DIMENSION_ALIASES: Record<string, string> = {
 }
 
 // 诊断检索指引（一条规则，替代原锚点表逐行重复的「检索指引」列）
-export const DIAG_RETRIEVAL_GUIDE = 'store:log_patterns_collection#错误码'
+// 2026-11-06（对齐 BUG-0009 A 导航层）：Agent 指引改**主库优先**短句；内部兜底另立常量解耦
+export const DIAG_RETRIEVAL_GUIDE = 'store:i2stream_collection#错误码 → store:log_patterns_collection#错误码'
+
+// 内部兜底检索源（对齐 py DIAG_EVIDENCE_COLLECTION）：只在引擎内部补证时用，不写进 Agent 指引——
+// 与 DIAG_RETRIEVAL_GUIDE 解耦，避免口径/手势变更互相牵连。
+export const DIAG_EVIDENCE_COLLECTION = 'store:log_patterns_collection#错误码'
 
 // 未登记错误码的处理规则（25 号：原锚点表的兜底行 → 规则常量）
 export const UNKNOWN_RULE =
-  '未登记错误码 → dimension:unknown（search_qdrant 兜底）+ gap_log 记录'
+  '含义未识别或未给消息文本 → ①带消息文本重问 ②主库用产品码纯代号（-NNNN）直查（命中码表定义）' +
+  '③实战案例库（store:log_patterns_collection）查该码处置 ④仍无 → gap_log'
 
 // ── 值委托指针表（Tool 层常量，23 号方案）────────────────────────────
 // 本体层不持有会随实例/客户/版本增长的值数据，数据下延到 Skill references，

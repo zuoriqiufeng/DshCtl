@@ -105,7 +105,17 @@
 
 ## 6. 验收记录（实施后回填）
 
-（待回填）
+### 批次 A · 语义漂移修正（2026-11-06）
+
+| 项 | 结果 |
+|---|---|
+| A1 进程注册集 7→10 | ✅ `PROCESS_IDS` 增 iamss/pgreplicator/pgtrack；`queryArchitecture('all')` 实测收录 process:iamss/pgtrack/pgreplicator（本体派生，非硬编码清单），三对象 `getProcessAttrs` 分别解析出 16/17/18 个关键属性 |
+| A2 导航层口径 | ✅ `DIAG_RETRIEVAL_GUIDE` = `store:i2stream_collection#错误码 → store:log_patterns_collection#错误码`；新增 `DIAG_EVIDENCE_COLLECTION` 承内部兜底，`pattern_library_entry` 由该常量派生（消除双源） |
+| A3 BUG-0009 B 码义兜底 | ✅ 7 码同题同比 py 逐条一致：-4071/-4002 走官方含义（src=code）；-4073、4217(→-4217) 走 `code_row_exact`（src=qdrant_code_row，码义「没有找到相应规则」/「对象比较任务详细信息」）；ORA1555、-9999 维持 unknown（非产品码 / 码表无此项，静默） |
+| A4 未登记码处理文案 | ✅ `UNKNOWN_RULE` 对齐 py「①带消息文本重问 ②主库纯代号直查 ③模式库查处置 ④gap_log」 |
+| A5 码来源提示 | ⏭ 本批未做（`code_origin.yaml` 厂商表解析留待与 C 批一并处理；A3 已覆盖「未登记码给码义」的主诉求） |
+| self-test | ✅ 168 → **186** 断言，ALL PASSED（新增 8 条：码义兜底三态 + 双常量 + 进程 10 个 + 架构收录） |
+| CI | ✅ `ci.sh` 九环节 ALL GREEN（26 passed / 0 failed） |
 
 ## 7. 决策记录
 

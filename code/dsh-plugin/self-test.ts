@@ -10,6 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { BKNResolver, bknWalkIssues } from './resolver.ts'
 import { validateBknContract, handleContractResult, CONTRACT_MIN_GENERATION } from './bknContract.ts'
+import { DIAG_EVIDENCE_COLLECTION, DIAG_RETRIEVAL_GUIDE, PROCESS_IDS } from './constants.ts'
 import { RelationTraverser } from './relations.ts'
 import { ContextLoader, ToonFormatter, TrimFilter } from './contextLoader.ts'
 import {
@@ -116,6 +117,38 @@ const resolver = new BKNResolver(BKN_ROOT)
 
   const risk = resolver.getRisk('-4073')
   check('getRisk(-4073) 命中', risk !== null, risk?.raw.slice(0, 60) ?? 'null')
+
+  // ── 2026-11-06 批次 A：对齐 i2stream-bkn（BUG-0009 码义兜底 + 进程实体补缺 + 导航层口径）──
+  const rk4073 = resolver.getRisk('-4073')
+  const m4073 = (rk4073?.meaning ?? {}) as { rule?: string; exact_meaning?: string; semantic_rule?: string }
+  check('BUG-0009 B：未登记产品码走码义兜底（code_row_exact + 码表中文义）',
+    rk4073?.meaning_source === 'qdrant_code_row' && m4073.rule === 'code_row_exact' && Boolean(m4073.exact_meaning),
+    JSON.stringify({ src: rk4073?.meaning_source, rule: m4073.rule, exact: m4073.exact_meaning }))
+  check('BUG-0009 B：码形机械归一（4217 → -4217 命中同一条码义）',
+    resolver.getRisk('4217')?.meaning?.exact_code === '-4217',
+    JSON.stringify(resolver.getRisk('4217')?.meaning ?? {}))
+  check('BUG-0009 B：非产品码不触发兜底（ORA-01555 维持官方含义路径）',
+    resolver.getRisk('ORA1555')?.meaning_source === 'code',
+    String(resolver.getRisk('ORA1555')?.meaning_source))
+  check('BUG-0009 B：未登记且码表无此码 → 静默维持 unknown',
+    resolver.getRisk('-9999')?.meaning_source === 'code' &&
+      (resolver.getRisk('-9999')?.dimensions ?? []).includes('dimension:unknown'),
+    JSON.stringify(resolver.getRisk('-9999')?.dimensions ?? []))
+  check('BUG-0009 A：Agent 指引改主库优先（主集合 → 模式库）',
+    DIAG_RETRIEVAL_GUIDE.startsWith('store:i2stream_collection#错误码 → store:log_patterns_collection#错误码'),
+    DIAG_RETRIEVAL_GUIDE)
+  check('BUG-0009 A：内部兜底常量与 Agent 指引解耦',
+    DIAG_EVIDENCE_COLLECTION === 'store:log_patterns_collection#错误码' && DIAG_EVIDENCE_COLLECTION !== DIAG_RETRIEVAL_GUIDE,
+    DIAG_EVIDENCE_COLLECTION)
+  check('进程实体补缺：PROCESS_IDS 10 个且三个新进程对象可解析',
+    PROCESS_IDS.length === 10 &&
+      ['iamss', 'pgtrack', 'pgreplicator'].every((p) => Object.keys(resolver.getProcessAttrs('process:' + p)).length > 0),
+    'count=' + PROCESS_IDS.length)
+  const arch = resolver.queryArchitecture('all')
+  const archText = JSON.stringify(arch)
+  check('架构输出收录新进程（本体派生，非硬编码清单）',
+    archText.includes('process:iamss') && archText.includes('process:pgtrack') && archText.includes('process:pgreplicator'),
+    'procs=' + String((arch as { processes?: unknown[] }).processes?.length ?? 'n/a'))
 }
 
 console.log('\n[3] riskGuard.ts 规则与决策')
