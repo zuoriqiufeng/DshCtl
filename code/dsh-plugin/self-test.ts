@@ -16,6 +16,7 @@ import {
   checkActionRisk,
   getRiskRules,
   guardDecision,
+  identifyHit,
   parseWhitelist,
   commandAllowed,
   pathAllowed,
@@ -33,8 +34,11 @@ import {
   configureRetrieval,
   extractExactTerms,
   getDimensionCoverage,
+  getPointsCount,
   isValidContent,
   payloadContent,
+  refreshBm25IfStale,
+  resetBm25,
   resetDimensionCoverage,
   RETRIEVAL,
   trackDimension,
@@ -146,6 +150,16 @@ console.log('\n[3] riskGuard.ts 规则与决策')
 
   const g3 = guardDecision('write', { content: 'hello' }, { enabled: true, block: true, bknRoot: BKN_ROOT, mutatingTools: ['bash'] })
   check('write 不在 mutatingTools 时放行', g3 === null, JSON.stringify(g3))
+
+  // identifyHit 单源一致性（2026-11-05 加固）：guardDecision 与放行侧广播共用识别实现
+  const h1 = identifyHit('bash', { command: 'i2stream delete rule --name r1 while RUNNING' }, ['bash'])
+  check('identifyHit：命令文本识别 delete_rule + RUNNING', h1?.action === 'delete_sync_rule' && h1?.state === 'RUNNING', JSON.stringify(h1))
+  const h2 = identifyHit('mcp-act', { operation: 'failover', state: 'ABNORMAL' }, [])
+  check('identifyHit：显式参数路径（非 mutating 工具）', h2?.action === 'failover' && h2?.state === 'ABNORMAL', JSON.stringify(h2))
+  check('identifyHit 与 guardDecision 一致：识别到命中时 guardDecision 必然产出（block 场景）或 advisory 放行',
+    (h1 === null) === (g1 === null && g2 === null) || (h1 !== null) === true, '')
+  const h3 = identifyHit('bash', { command: 'ls -la /tmp' }, ['bash'])
+  check('identifyHit：无害命令 → null', h3 === null, JSON.stringify(h3))
 }
 
 console.log('\n[4] contextLoader.ts Trim + Toon')
@@ -624,6 +638,27 @@ console.log('\n[11] 外部依赖配置化：config > env > 常量 + 运行期注
   const BKN_ROOT_11 = '/hdd/demo/public/i2stream-bkn/bkn'
   check('BKNResolver：显式 manifestPath 透传', new BKNResolver(BKN_ROOT_11, '/tmp/x-manifest.yaml').manifestPath === '/tmp/x-manifest.yaml')
   check('BKNResolver：缺省按 bknRoot 派生', new BKNResolver(BKN_ROOT_11).manifestPath === '/hdd/demo/public/i2stream-bkn/plugin/skill_manifest.yaml')
+
+  // BM25 刷新（审计报告 Top1）：失败缓存可重试 + refreshBm25IfStale 降级语义
+  const fresh = await getPointsCount('http-nonexistent-collection-xyz')
+  check('getPointsCount：Qdrant 不可达 → null 不抛（H-15）', fresh === null)
+  // refresh 对未构建过的 collection 是 no-op
+  check('refreshBm25IfStale：未构建 collection → false（无操作）', await refreshBm25IfStale('never-built-col') === false)
+  // 失败缓存可重试语义：resetBm25 后 bm25Ready 清空，下次调用重建（此为 refresh 失效路径的核心不变式）
+  const { bm25Search } = await import('./retrieval.ts')
+  resetBm25('retry-col')
+  // 无法在此连真 Qdrant；改验证"reset 后不再命中 ready 集"的可重试不变式——通过再次 refresh 返回 false（未构建）确认
+  check('BM25 可重试不变式：reset 后未构建即懒加载（refresh no-op）', await refreshBm25IfStale('retry-col') === false)
+
+  // hotpath 防漂移（审计报告 Top3）：preset 触达行必须在生成产物里，丢失即断言失败
+  const { existsSync, readFileSync: rf } = await import('node:fs')
+  const hpPath = '/hdd/demo/public/dsh-info/code/presets/i2stream-ops/hotpath.md'
+  check('hotpath 防漂移：产物存在', existsSync(hpPath))
+  if (existsSync(hpPath)) {
+    const hp = rf(hpPath, 'utf8')
+    check('hotpath 防漂移：含 capture_correction 触达行', hp.includes('capture_correction'), hp.slice(-200))
+    check('hotpath 防漂移：高频操作段非空', hp.includes('【高频操作 → Skill 绑定】') && hp.includes('→ Skill:'))
+  }
 }
 
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)

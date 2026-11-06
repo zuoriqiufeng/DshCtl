@@ -180,15 +180,38 @@ function withPatternFields(hit: Hit, payload: Record<string, any>): Hit {
   return hit
 }
 
-// ── BM25 per-collection 索引（懒加载 + scroll 构建） ──
+// ── BM25 per-collection 索引（懒加载 + scroll 构建 + 周期刷新） ──
 
-interface Bm25Bundle { index: BM25Scorer; contentCache: Map<string, string>; exactIndex: Map<string, Set<string>> }
+interface Bm25Bundle { index: BM25Scorer; contentCache: Map<string, string>; exactIndex: Map<string, Set<string>>; pointsCount?: number }
 const bm25Indexes = new Map<string, Bm25Bundle | null>()
 const bm25Ready = new Set<string>()
 
 export function resetBm25(collection?: string): void {
   if (collection) { bm25Indexes.delete(collection); bm25Ready.delete(collection) }
   else { bm25Indexes.clear(); bm25Ready.clear() }
+}
+
+/** Qdrant collection 当前 points_count（BM25 刷新比对用；失败返回 null，由调用方降级）。 */
+export async function getPointsCount(collection: string): Promise<number | null> {
+  try {
+    const data = await httpJson(`${RETRIEVAL.qdrantUrl}/collections/${collection}`, { method: 'GET' })
+    const n = data?.result?.points_count
+    return typeof n === 'number' ? n : null
+  } catch { return null }
+}
+
+/** BM25 周期刷新（bm25RefreshSec>0 时由插件 timer 调用）：collection points_count
+ * 与构建时快照不一致 → resetBm25 定向失效，下次检索懒加载重建。返回是否触发了重建失效。 */
+export async function refreshBm25IfStale(collection: string): Promise<boolean> {
+  const name = collection || RETRIEVAL.collection
+  if (!bm25Ready.has(name)) return false // 从未构建过，无需刷新
+  const count = await getPointsCount(name)
+  if (count === null) return false // Qdrant 不可达：保持现状（H-15，不让刷新失败影响检索）
+  const bundle = bm25Indexes.get(name)
+  if (bundle && bundle.pointsCount === count) return false
+  recordBm25Warning(`collection '${name}' points_count ${bundle?.pointsCount ?? '?'} → ${count}，BM25 索引已失效待重建`)
+  resetBm25(name)
+  return true
 }
 
 async function getBm25Index(collection: string): Promise<Bm25Bundle | null> {
@@ -209,15 +232,23 @@ async function getBm25Index(collection: string): Promise<Bm25Bundle | null> {
       }
       offset = page.nextOffset
     } while (offset !== null && offset !== undefined && offset !== '')
-    if (!docs.length) { recordBm25Warning(`collection '${name}' 空或未向量化，BM25 索引未构建`); bm25Indexes.set(name, null); return null }
+    if (!docs.length) {
+      // 空集合不进 ready 集：知识后续写入后下次调用可重建（失败缓存可重试原则）
+      recordBm25Warning(`collection '${name}' 空或未向量化，BM25 索引未构建（未缓存，知识写入后可重建）`)
+      bm25Indexes.delete(name)
+      bm25Ready.delete(name)
+      return null
+    }
     const index = new BM25Scorer()
     index.indexDocuments(docs)
-    const bundle: Bm25Bundle = { index, contentCache, exactIndex: buildExactIndex(contentCache) }
+    const bundle: Bm25Bundle = { index, contentCache, exactIndex: buildExactIndex(contentCache), pointsCount: docs.length }
     bm25Indexes.set(name, bundle)
     return bundle
   } catch (e) {
-    recordBm25Warning(`BM25 索引构建失败: ${String(e).slice(0, 80)}`)
-    bm25Indexes.set(name, null)
+    // 构建失败不进 ready 集：故障后可重试，而非永久缓存 null
+    recordBm25Warning(`BM25 索引构建失败（未缓存，可重试）: ${String(e).slice(0, 80)}`)
+    bm25Indexes.delete(name)
+    bm25Ready.delete(name)
     return null
   }
 }

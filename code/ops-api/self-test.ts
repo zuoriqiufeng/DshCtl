@@ -582,6 +582,16 @@ async function test10Memory(): Promise<void> {
 
   // 15.5 revision 对 CRLF 稳定
   check('15.5 CRLF 归一化 revision 相等', computeRevision('a\r\nb') === computeRevision('a\nb'), '')
+
+  // 15.6 MCP 启停位（P1c）：serialize 带 disabled: true / parse 回读 enabled=false / 往返保留原字段
+  const disabledEntry = { ...entry, enabled: false as const }
+  const disLines = serializeServer(disabledEntry)
+  check('15.6a disabled 序列化含 disabled: true', disLines.some((l) => l.trim() === 'disabled: true'), disLines.join(' | '))
+  const disRound = parseManagedServers([MANAGED_BEGIN, ...disLines, MANAGED_END].join('\n'))
+  check('15.6b parse 回读 enabled=false 且字段保留', disRound[0]?.enabled === false && disRound[0]?.url === entry.url, JSON.stringify(disRound[0]))
+  const enRound = parseManagedServers([MANAGED_BEGIN, ...serializeServer(entry), MANAGED_END].join('\n'))
+  check('15.6c 无 disabled 行 → enabled=true（缺省活跃）', enRound[0]?.enabled === true, JSON.stringify(enRound[0]?.enabled))
+
   rmSync(tmpDir, { recursive: true, force: true })
 }
 // [16] admin 页面 JS 语法（回归：模板字面量内 \' 求值成裸 ' 会让整个脚本块解析失败、页面永远空白）
@@ -594,6 +604,11 @@ try {
   check('16.1 admin 页面脚本可解析', false, String(e).slice(0, 100))
 }
 check('16.2 页面含关键区块', ADMIN_HTML.includes('MCP 服务器') && ADMIN_HTML.includes('技能（新会话生效）') && ADMIN_HTML.includes('/admin/api/state'), '')
+check('16.3 P1c 增强区块在位（启停/连通验证/观测卡片）', ADMIN_HTML.includes('toggleMcp') && ADMIN_HTML.includes('probeMcp') && ADMIN_HTML.includes('/v1/metrics') && ADMIN_HTML.includes('观测'), '')
+// P1.5：escapeHtml 注入防线 + 反馈闭环区块 + 失败率行
+check('16.4 escapeHtml 在位且动态拼接点已转义', ADMIN_HTML.includes('function escapeHtml') && (ADMIN_HTML.match(/escapeHtml\(/g) || []).length >= 8, '')
+check('16.5 反馈闭环区块与三端点在位', ADMIN_HTML.includes('反馈闭环') && ADMIN_HTML.includes('/admin/api/feedback') && ADMIN_HTML.includes('/admin/api/observability') && ADMIN_HTML.includes('/admin/api/skills/usage'), '')
+check('16.6 观测卡片含失败率行（timeout/abandoned 分档）', ADMIN_HTML.includes('errorsTimeout') && ADMIN_HTML.includes('errorsAbandoned'), '')
 
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : `${failures} FAILED ❌`}`)
 process.exit(failures === 0 ? 0 : 1)

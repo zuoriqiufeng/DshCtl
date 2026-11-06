@@ -69,7 +69,11 @@ function buildHotpath(resolver: BKNResolver, traverser: RelationTraverser): stri
     out.push(`- ${id}: ${desc}${dirText ? ` → ${dirText}` : ''}${skills.length ? ` → Skill: ${skills.slice(0, 2).join('、')}` : ''}`)
   }
 
-  // ③ 常见错误码 → 一句话方向
+  // ③' 反馈回流触达（审计报告 Top3）：capture_correction 是 bkn-feedback 插件工具、不在 BKN operations
+  //    里（lookupOperation 查不到），故为静态行——没有它模型不会自发调用，user_supplied 字段持续为空。
+  out.push('')
+  out.push('【反馈回流】用户纠正了 BKN 给出的答案（说错了/漏了/过时）→ 立即调用 capture_correction 工具，tool=被纠正的工具名、correction=引用用户原话')
+  // ④ 常见错误码 → 一句话方向
   out.push('')
   out.push(`【常见错误码方向】(前 ${MAX_ERROR_CODES} 条；完整诊断 diagnose_error 工具)`)
   const diag = resolver.load('risks/diagnostics.bkn')
@@ -107,6 +111,10 @@ function main(): void {
   const resolver = new BKNResolver(BKN_ROOT)
   const traverser = new RelationTraverser(BKN_ROOT)
   const hotpath = buildHotpath(resolver, traverser)
+  // 防漂移断言（审计报告 Top3）：关键触达行缺失即抛错——否则 preset 重生成会静默丢掉反馈回流指引
+  if (!hotpath.includes('capture_correction')) {
+    throw new Error('[gen-hotpath] 防漂移断言失败：生成串缺少 capture_correction 触达行（反馈回流指引丢失）')
+  }
   writeFileSync(join(PRESET_DIR, 'hotpath.md'), `${hotpath}\n`)
   inject(join(PRESET_DIR, 'agent.cordis.yml'), hotpath)
   const tokens = Math.round(hotpath.length / 1.6)

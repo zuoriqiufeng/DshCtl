@@ -2,10 +2,10 @@
  * self-test.ts — dshctl v0.1 纯逻辑自测（fixture 驱动，不依赖 live 实例）
  * 运行：bin/dshctl-selftest（自带 tsx，任意目录可用）
  */
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite, mutateYamlText } from './yml.ts'
 import { parseDomain, renderDomainYml, renderDomainSkeleton, ENV_NAME_RE } from './domain.ts'
 import { loadRegistry, saveRegistry, upsertInstance, findDomainConflicts, listDomainNames, pickDomain } from './registry.ts'
@@ -22,7 +22,7 @@ import { loadPluginRegistry, savePluginRegistry, addPlugin, removePlugin, setTru
 import { loadCoreList, coreViolations, coreIds, slotFindings, saveSlotMember } from './core.ts'
 import { previewComposition, applySlotDeclarations } from './graph.ts'
 import { importFromZip, importFromGit, zipEntryUnsafe, ZIP_MAX_UNCOMPRESSED } from './import.ts'
-import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, snapshotBkn, type PluginManifest } from './unitize.ts'
+import { loadPluginManifest, savePluginManifest, manifestConfigPlain, collectPeerDeps, scaffoldPlugin, installIntoDomain, extractInsertBlock, snapshotBkn, findCrossPluginImports, packPlugin, type PluginManifest } from './unitize.ts'
 import { crossCheckRegistries } from './plugin.ts'
 import { runReplace, type ReplacePaths } from './replace.ts'
 import type { DomainSpec } from './domain.ts'
@@ -34,6 +34,8 @@ function check(label: string, cond: boolean, detail = ''): void {
 }
 
 const roots: string[] = []
+/** 开发机 harness 副本（真 tsc 所在；pack 端到端断言依赖其 node_modules） */
+const DSH_SOURCE_DEV = '/hdd/agent/deepseek-harness'
 function fixture(): string {
   const d = mkdtempSync(join(tmpdir(), 'dshctl-'))
   roots.push(d)
@@ -886,6 +888,19 @@ console.log('\n[16] v0.5 插件单元化：自描述 / scaffold / install / R13 
     JSON.stringify(collectPeerDeps(depDir)) === JSON.stringify(['@deepseek-ai/cordis', '@deepseek-ai/dsh-tools', '@deepseek-ai/schemastery']),
     JSON.stringify(collectPeerDeps(depDir)))
 
+  // ②' findCrossPluginImports：相对 import 越界检测（S1 fail-loud 的共用实现）
+  const cxDir = fixture()
+  mkdirSync(cxDir, { recursive: true })
+  writeFileSync(join(cxDir, 'index.ts'), "import { x } from './util.ts'\nimport { y } from '../other/lib.ts'\nimport { z } from '@scope/pkg'\n")
+  writeFileSync(join(cxDir, 'util.ts'), "import { w } from './deep/w.ts'\nexport const x = 1\n")
+  mkdirSync(join(cxDir, 'deep'), { recursive: true })
+  writeFileSync(join(cxDir, 'deep', 'w.ts'), 'export const w = 1\n')
+  const cxHits = findCrossPluginImports(cxDir)
+  check('findCrossPluginImports：../ 越界命中 1 处（内部相对/包名不误报）',
+    cxHits.length === 1 && cxHits[0]!.file === 'index.ts' && cxHits[0]!.spec === '../other/lib.ts',
+    JSON.stringify(cxHits))
+  check('findCrossPluginImports：不存在目录 → 空（不抛）', findCrossPluginImports(join(cxDir, 'nope')).length === 0)
+
   // ③ scaffold：package.json 补全 + manifest 新建 + peer 双声明
   const regFx: PluginRegistry = { schema: 1, plugins: [{ id: 'demo-plugin', path: join(depDir, 'index.ts'), trusted: true, source: 'local' }] }
   const sc = scaffoldPlugin(regFx, 'demo-plugin', fixture())
@@ -944,6 +959,53 @@ console.log('\n[16] v0.5 插件单元化：自描述 / scaffold / install / R13 
 
   // ⑦ 导入防护常量
   check('导入防护：解压上限 200MB 常量在位', ZIP_MAX_UNCOMPRESSED === 200 * 1024 * 1024)
+}
+
+console.log('\n[17] v0.9 S1：pack fail-loud 跨插件检查（真 tsc + pnpm pack 端到端）')
+{
+  const mkPlugin = (id: string, entrySrc: string): string => {
+    const dir = fixture()
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'index.ts'), entrySrc)
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: `dsh-plugin-${id}`, version: '0.1.0', private: true, type: 'module', main: 'index.ts', files: ['*.ts', 'dsh.plugin.yml', 'package.json'] }))
+    savePluginManifest(dir, { schema: 1, id, entry: 'index.ts', layout: 'in-place' })
+    return dir
+  }
+  const tscOk = existsSync(join(DSH_SOURCE_DEV ?? '.', 'node_modules', 'typescript', 'bin', 'tsc'))
+  if (!tscOk) {
+    console.log('  （跳过：开发机 harness 无 typescript——pack 端到端断言仅在装好依赖的环境跑）')
+  } else {
+    // ① 跨插件依赖的包 → 拒绝（fail-loud，不产出 tgz）
+    const badDir = mkPlugin('bad-plug', "import { helper } from '../shared-neighbor/helper.ts'\nexport function apply() {}\n")
+    mkdirSync(join(dirname(badDir), 'shared-neighbor'), { recursive: true })
+    writeFileSync(join(dirname(badDir), 'shared-neighbor', 'helper.ts'), 'export const helper = 1\n')
+    const badReg: PluginRegistry = { schema: 1, plugins: [{ id: 'bad-plug', path: join(badDir, 'index.ts'), trusted: true, source: 'local' }] }
+    const badOut = fixture()
+    const bad = packPlugin(badReg, 'bad-plug', { outDir: badOut, dshSource: DSH_SOURCE_DEV! })
+    check('pack：跨插件相对 import → 拒绝（ok=false + S1 语义点名）',
+      !bad.ok && bad.errors.some((e) => e.includes('自包含检查失败')), JSON.stringify(bad.errors))
+    check('pack：拒绝时不产出 tgz', !readdirSync(badOut).some((f) => f.endsWith('.tgz')))
+    // ② 自包含合规包 → 真 tsc 构建 + pnpm pack 成功
+    const goodDir = mkPlugin('good-plug', "import { helper } from './helper.ts'\nimport { Context } from '@deepseek-ai/cordis'\nexport function apply(_ctx: Context) { void helper }\n")
+    writeFileSync(join(goodDir, 'helper.ts'), 'export const helper = 1\n')
+    const goodReg: PluginRegistry = { schema: 1, plugins: [{ id: 'good-plug', path: join(goodDir, 'index.ts'), trusted: true, source: 'local' }] }
+    const goodOut = fixture()
+    const good = packPlugin(goodReg, 'good-plug', { outDir: goodOut, dshSource: DSH_SOURCE_DEV! })
+    check('pack：自包含合规包 → 成功产出 tgz', good.ok && readdirSync(goodOut).some((f) => f.endsWith('.tgz')), JSON.stringify(good.errors))
+    // ③ R12 扩展：in-place 插件跨插件 import → error；vendored 不查
+    const badHome = fixture(); mkdirSync(join(badHome, 'plugins'), { recursive: true })
+    const specBad = { schema: 1, domain: 'd1', dsh_home: badHome, dsh_source: '/s', capabilities: [], preset: { source: '/p', skills_dirs: [] } } as Parameters<typeof checkDomainPlugins>[0]
+    const r12bad = checkDomainPlugins({ ...specBad, plugins: [{ id: 'bad-plug', path: join(badDir, 'index.ts') }] }, badReg)
+    check('R12 扩展：in-place 跨插件 import → error（S1 越界点名）',
+      r12bad.some((i) => i.level === 'error' && i.msg.includes('跨插件相对 import')), JSON.stringify(r12bad))
+    const vendoredDir = join(badHome, 'plugins', 'bad-plug'); mkdirSync(vendoredDir, { recursive: true })
+    writeFileSync(join(vendoredDir, 'index.ts'), "import { helper } from '../shared-neighbor/helper.ts'\nexport function apply() {}\n")
+    savePluginManifest(vendoredDir, { schema: 1, id: 'bad-plug', entry: 'index.ts', layout: 'vendored' })
+    badReg.plugins[0]!.path = join(vendoredDir, 'index.ts')
+    const r12v = checkDomainPlugins({ ...specBad, plugins: [{ id: 'bad-plug', path: join(vendoredDir, 'index.ts') }] }, badReg)
+    check('R12 扩展：vendored 不做源目录扫描（无跨插件 error）',
+      !r12v.some((i) => i.level === 'error' && i.msg.includes('跨插件相对 import')), JSON.stringify(r12v))
+  }
 }
 
 console.log('\n[19] v1.6 check R14：preset 引用一致性（声明式 / 目录式残留检测）')

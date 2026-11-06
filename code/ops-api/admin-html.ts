@@ -60,6 +60,14 @@ export const ADMIN_HTML = `<!doctype html>
     <h2>技能（新会话生效）</h2>
     <div class="chips" id="skills"></div>
   </section>
+  <section>
+    <h2>观测（usage / 护栏审计）</h2>
+    <div id="obs"></div>
+  </section>
+  <section>
+    <h2>反馈闭环（gap 回流 / 技能使用）</h2>
+    <div id="feedback"></div>
+  </section>
 </main>
 <dialog id="dlg">
   <h3 id="dlg-title" style="margin:0 0 4px">新增 MCP 服务器</h3>
@@ -98,10 +106,10 @@ async function api(path, opts = {}) {
     clearKey();
     if (confirm('Key 无效，重新输入？')) { state = null; refresh(); }
     else { document.getElementById('mcp-list').innerHTML = '<p class="rev">鉴权失败—点右上角「切换 Key」重试</p>'; }
-    throw new Error('401');
+    const err = new Error('401'); err.status = 401; throw err;
   }
   const body = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(body.error && body.error.message || resp.status);
+  if (!resp.ok) { const err = new Error(body.error && body.error.message || resp.status); err.status = resp.status; throw err; }
   return body;
 }
 async function refresh() {
@@ -110,23 +118,98 @@ async function refresh() {
     render();
   } catch (e) { /* toast 已提示 */ }
 }
+// HTML 转义（P1.5 A4）：serverName/技能名/e.message 等动态数据拼入 innerHTML 前必须过此函数——
+// correction 等用户可控文本经闭环桥接进入管理面后，这是注入面的最后防线
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
 function render() {
   document.getElementById('rev').textContent = 'rev ' + state.revision.slice(0, 8);
   document.getElementById('health').innerHTML = Object.entries(state.health || {})
-    .map(([n, s]) => '<span><span class="dot ' + (s === 'ok' ? 'ok' : 'bad') + '"></span>' + n + ' ' + s + '</span>').join('');
+    .map(([n, s]) => '<span><span class="dot ' + (s === 'ok' ? 'ok' : 'bad') + '"></span>' + escapeHtml(n) + ' ' + escapeHtml(s) + '</span>').join('');
   document.getElementById('mcp-list').innerHTML = (state.mcp || []).map((s) => {
     const target = s.transport === 'stdio' ? (s.command || '') : (s.url || '');
-    return '<div class="card"><h3>' + s.serverName + ' <span class="rev">' + s.transport + '</span></h3>'
-      + '<div class="meta">' + target + '</div><div class="actions">'
-      + '<button class="danger" onclick="delMcp(&quot;' + s.serverName + '&quot;)">删除</button></div></div>';
+    const nm = escapeHtml(s.serverName);
+    return '<div class="card"><h3>' + nm + ' <span class="rev">' + escapeHtml(s.transport) + '</span></h3>'
+      + '<div class="meta">' + escapeHtml(target) + (s.enabled === false ? ' <span class="rev">（已停用）</span>' : '') + '</div><div class="actions">'
+      + '<button onclick="toggleMcp(&quot;' + nm + '&quot;,' + (s.enabled === false ? 'false' : 'true') + ')">' + (s.enabled === false ? '启用' : '停用') + '</button>'
+      + '<button onclick="probeMcp(&quot;' + nm + '&quot;,this)">连通验证</button>'
+      + '<button class="danger" onclick="delMcp(&quot;' + nm + '&quot;)">删除</button></div></div>';
   }).join('') || '<p class="rev">托管段为空——用「新增」添加第一个 MCP 服务器</p>';
-  document.getElementById('skills').innerHTML = (state.skills || []).map((s) =>
-    '<span class="chip ' + (s.enabled ? '' : 'off') + '" onclick="toggleSkill(&quot;' + s.name + '&quot;,' + s.enabled + ')">' + s.name + '</span>').join('') || '<p class="rev">无技能目录</p>';
+  document.getElementById('skills').innerHTML = (state.skills || []).map((s) => {
+    const nm = escapeHtml(s.name);
+    return '<span class="chip ' + (s.enabled ? '' : 'off') + '" onclick="toggleSkill(&quot;' + nm + '&quot;,' + s.enabled + ')">' + nm + '</span>';
+  }).join('') || '<p class="rev">无技能目录</p>';
+  renderObs();
+  renderFeedback();
+}
+// 观测卡片：经 /v1/metrics 拉 usage/护栏聚合；dsh-observability 缺席时显示"未挂载"（诚实原则）
+async function renderObs() {
+  const el = document.getElementById('obs');
+  try {
+    const m = await api('/v1/metrics');
+    const rh = m.riskHits || {};
+    el.innerHTML = '<div class="card"><h3>usage / 护栏</h3><div class="meta">'
+      + '请求 ' + (m.requests ?? 0) + ' 次 · token 共 ' + (m.totalTokens ?? 0) + ' · 会话 ' + (m.sessions ?? 0)
+      + '<br>失败 ' + (m.errors ?? 0) + '（timeout ' + (m.errorsTimeout ?? 0) + ' / abandoned ' + (m.errorsAbandoned ?? 0) + '）<br>'
+      + '护栏命中：共 ' + (rh.total ?? 0) + '（block ' + (rh.block ?? 0) + ' / advisory ' + (rh.advisory ?? 0) + ' / shadow ' + (rh.shadow ?? 0) + ' / gray ' + (rh.gray ?? 0) + '）'
+      + '</div></div>';
+  } catch (e) {
+    if (e.status === 404) el.innerHTML = '<p class="rev">观测未挂载——请在域 plugins[] 加入 dsh-observability 插件</p>';
+    else el.innerHTML = '<p class="rev">观测读取失败: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+// 反馈闭环卡片（P1.5 B1）：gap 分析 + 护栏最近命中 + 技能 usage top——三个 provide 服务的生产消费面
+async function renderFeedback() {
+  const el = document.getElementById('feedback');
+  const parts = [];
+  try {
+    const fb = await api('/admin/api/feedback');
+    parts.push('<div class="card"><h3>gap 回流</h3><div class="meta">'
+      + '有效 ' + (fb.entries ?? 0) + ' 条 · 纯积压 ' + (fb.backlog ?? 0) + ' · 待 resolve ' + (fb.correctedBacklog ?? 0) + ' · 已纠正 ' + (fb.corrections ?? 0)
+      + ((fb.topGaps || []).length ? '<br>高频 gap：' + fb.topGaps.slice(0, 3).map((g) => escapeHtml(g.gap) + '×' + g.count).join('、') : '')
+      + '</div></div>');
+  } catch (e) {
+    parts.push('<div class="card"><h3>gap 回流</h3><div class="meta">' + (e.status === 404 ? '未挂载——请在域 plugins[] 加入 bkn-feedback 插件' : '读取失败: ' + escapeHtml(e.message)) + '</div></div>');
+  }
+  try {
+    const ob = await api('/admin/api/observability');
+    const recent = (ob.recentRisk || []).slice(0, 5);
+    parts.push('<div class="card"><h3>护栏最近命中</h3><div class="meta">'
+      + (recent.length ? recent.map((r) => '[' + escapeHtml(r.verdict) + '] ' + escapeHtml(r.tool || '') + ' ' + escapeHtml(r.action || '')).join('<br>') : '（无记录）')
+      + '</div></div>');
+  } catch (e) { /* 观测卡片已显示缺席提示，此处不重复 */ }
+  try {
+    const su = await api('/admin/api/skills/usage');
+    const rows = Object.entries(su.usage || {}).sort((a, b) => (b[1].use_count || 0) - (a[1].use_count || 0)).slice(0, 5);
+    parts.push('<div class="card"><h3>技能使用 Top5</h3><div class="meta">'
+      + (rows.length ? rows.map(([n, u]) => escapeHtml(n) + ' ×' + (u.use_count || 0) + ' [' + escapeHtml(u.state || '') + ']').join('<br>') : '（无台账）')
+      + '</div></div>');
+  } catch (e) { /* 同上 */ }
+  el.innerHTML = parts.join('');
 }
 async function delMcp(name) {
   if (!confirm('删除 MCP 服务器 ' + name + '？热更后新会话工具消失')) return;
   try { await api('/admin/api/mcp/' + encodeURIComponent(name) + '?revision=' + state.revision, { method: 'DELETE' }); toast('已删除 ' + name); refresh(); }
   catch (e) { toast('删除失败: ' + e.message); }
+}
+// MCP 单项启停（PUT enabled 字段；热更后新会话生效）
+async function toggleMcp(name, enabled) {
+  const def = (state.mcp || []).find((s) => s.serverName === name) || {};
+  try { await api('/admin/api/mcp/' + encodeURIComponent(name) + '?revision=' + state.revision, { method: 'PUT', body: JSON.stringify({ ...def, enabled: !enabled }) }); toast(name + (!enabled ? ' 已启用' : ' 已停用') + '（新会话生效）'); refresh(); }
+  catch (e) { toast('启停失败: ' + e.message); }
+}
+// MCP 连通性三态探测（观察期检查单：/admin 装真实 MCP 验证）：ok / reachable-no-tools / unreachable
+async function probeMcp(name, btn) {
+  if (btn.disabled) return;            // 并发防护：探测中忽略连点
+  btn.disabled = true;
+  btn.textContent = '探测中…';
+  try {
+    const r = await api('/admin/api/mcp/' + encodeURIComponent(name) + '/probe', { method: 'POST' });
+    btn.textContent = r.status === 'ok' ? '✓ 已连通' : r.status === 'reachable' ? '⚠ 可达无工具' : '✗ 不可达';
+    toast(name + ' 连通性: ' + r.status + (r.detail ? ' — ' + r.detail : ''));
+    setTimeout(() => { btn.textContent = '连通验证'; btn.disabled = false; }, 6000);
+  } catch (e) { btn.textContent = '连通验证'; btn.disabled = false; toast('探测失败: ' + e.message); }
 }
 async function toggleSkill(name, enabled) {
   try { await api('/admin/api/skills/' + encodeURIComponent(name) + '/' + (enabled ? 'disable' : 'enable'), { method: 'POST' }); toast(name + (enabled ? ' 已停用' : ' 已启用') + '（新会话生效）'); refresh(); }

@@ -266,7 +266,8 @@ export function apply(ctx: Context, config: Config) {
       : undefined,
     follow: (req, signal) => sc.follow(req, signal),
     prompt: (req, signal) => sc.prompt(req, signal),
-    cancel: (req) => { try { sc.cancel(req) } catch { /* ignore */ } },
+    // cancel 吞错改 warn 记录（加固批次 2026-11-05）：调用方无从区分"已取消"vs"没送到"时至少日志可查
+    cancel: (req) => { try { sc.cancel(req) } catch (e) { log.warn(`[ops-api] sc.cancel 吞错（会话可能已结束）: ${String(e).slice(0, 160)}`) } },
   }
 
   // ── 会话续接 header 解析（G1）──
@@ -286,6 +287,11 @@ export function apply(ctx: Context, config: Config) {
   let memory: OpsMemoryService | null = null
   let supervisor: GatewaySupervisor | null = null
   const memoryKeysSeen = new Set<string>()   // dispose 时 flush session/end
+  // ── 观测服务（P1a，dsh-observability）：可选注入——插件缺席 = undefined = 不上报（ctx.get 兜底，S0 零 import）──
+  const observability = ctx.get('observability') as unknown as
+    | { recordUsage(rec: { ts: number; sessionId: string; model: string; promptTokens: number; completionTokens: number; totalTokens: number; finishReason: string }): void }
+    | undefined
+  if (observability) log.info('[ops-api] observability attached：usage afterTurn 上报已启用')
   if (cfg.memory.enabled) {
     memory = createOpsMemory(
       { url: cfg.memory.gatewayUrl, apiKey: cfg.memory.gatewayApiKey || undefined },
@@ -397,6 +403,29 @@ export function apply(ctx: Context, config: Config) {
         return
       }
       sendJson(res, 200, capabilitiesBody())
+    },
+  }))
+
+  // ── GET /v1/metrics（P1a 观测：dsh-observability 缺席 → 404 + 提示语，诚实原则）──
+  disposers.push(mountRoute({
+    kind: 'exact',
+    path: '/v1/metrics',
+    handler: (req: IncomingMessage, res: ServerResponse) => {
+      if (!authorized(req.headers.authorization, cfg.apiKey)) {
+        sendJson(res, 401, errorBody('Invalid gateway API key (API_SERVER_KEY)', 'gateway_auth_error'))
+        return
+      }
+      const obs = ctx.get('observability') as unknown as { aggregate(days?: number): unknown } | undefined
+      if (!obs) {
+        sendJson(res, 404, errorBody('observability plugin not mounted——请挂载 dsh-observability 插件以启用 /v1/metrics', 'not_found'))
+        return
+      }
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      const daysRaw = Number(url.searchParams.get('days') ?? '')
+      const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.floor(daysRaw) : undefined
+      try { sendJson(res, 200, { object: 'metrics', days: days ?? null, ...((obs.aggregate(days) ?? {}) as object) }) } catch (e) {
+        sendJson(res, 500, errorBody(`aggregate failed: ${String(e).slice(0, 120)}`, 'api_error'))
+      }
     },
   }))
 
@@ -551,9 +580,10 @@ export function apply(ctx: Context, config: Config) {
         })()
       },
     }))
-    // PUT /admin/api/mcp/<name> — 替换定义（body.enabled===false 等价停用）；
+    // PUT /admin/api/mcp/<name> — 替换定义（body.enabled===false 等价停用：保留定义 + disabled: true）；
+    // POST /admin/api/mcp/<name>/probe — 连通性三态探测（P1c）。
     // DELETE /admin/api/mcp/<name> — 删除条目；?revision= 可选并发保护。
-    // webserver 禁止重复 prefix 路由，因此 PUT/DELETE 合并为单一 handler 按 method 分发。
+    // webserver 禁止重复 prefix 路由，因此 PUT/DELETE/probe 合并为单一 handler 按 method+子路径分发。
     disposers.push(mountRoute({
       kind: 'prefix',
       path: '/admin/api/mcp',
@@ -561,7 +591,31 @@ export function apply(ctx: Context, config: Config) {
         if (!adminAuthorized(req)) { sendJson(res, 401, errorBody('invalid admin key', 'admin_auth_error')); return }
         const method = (req.method ?? 'GET').toUpperCase()
         const url = new URL(req.url ?? '/', 'http://x')
-        const name = decodeURIComponent(url.pathname.slice('/admin/api/mcp'.length).replace(/^\//, ''))
+        const parts = url.pathname.slice('/admin/api/mcp'.length).replace(/^\//, '').split('/')
+        const name = decodeURIComponent(parts[0] ?? '')
+        if (method === 'POST') {
+          // POST /admin/api/mcp/<name>/probe — 连通性三态探测（P1c /admin 增强；观察期检查单"装真实 MCP 验证"）
+          if (parts[1] !== 'probe') { sendJson(res, 404, errorBody('unknown admin mcp action', 'not_found')); return }
+          const target = readManagedState(cfg.admin.patchPath).servers.find((s) => s.serverName === name)
+          if (!target) { sendJson(res, 404, errorBody(`mcp server '${name}' not in managed block`, 'not_found')); return }
+          if (target.transport === 'stdio') { sendJson(res, 200, { status: 'unreachable', detail: 'stdio transport——请用命令行探活' }); return }
+          void (async () => {
+            const ctl = new AbortController()
+            const timer = setTimeout(() => ctl.abort(), 3000)
+            try {
+              const resp = await fetch(target.url!, { method: 'POST', headers: { ...(target.headers ?? {}), 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), signal: ctl.signal })
+              const text = await resp.text()
+              let toolCount = -1
+              try { const j = JSON.parse(text) as { result?: { tools?: unknown[] } }; toolCount = Array.isArray(j.result?.tools) ? j.result.tools.length : -1 } catch { /* SSE 或非 JSON */ }
+              if (resp.ok && toolCount > 0) sendJson(res, 200, { status: 'ok', detail: `tools=${toolCount}` })
+              else if (resp.ok) sendJson(res, 200, { status: 'reachable', detail: `http ${resp.status} 但未解析到工具列表（SSE 或空 result）` })
+              else sendJson(res, 200, { status: 'unreachable', detail: `http ${resp.status}` })
+            } catch (e) {
+              sendJson(res, 200, { status: 'unreachable', detail: String(e).slice(0, 120) })
+            } finally { clearTimeout(timer) }
+          })()
+          return
+        }
         if (method === 'DELETE') {
           const cur = readManagedState(cfg.admin.patchPath)
           const expected = url.searchParams.get('revision') ?? cur.revision
@@ -577,7 +631,10 @@ export function apply(ctx: Context, config: Config) {
             const expected = typeof body.revision === 'string' ? body.revision : cur.revision
             const existing = cur.servers.find((s) => s.serverName === name)
             let next = cur.servers.filter((s) => s.serverName !== name)
-            if (body.enabled !== false) {
+            if (body.enabled === false) {
+              // 停用 = 保留定义 + disabled: true（P1c：保留 serverName/transport/url 等原字段）
+              if (existing) next = [...next, { ...existing, enabled: false }]
+            } else {
               const entry: AdminMcpEntry = {
                 serverName: name,
                 transport: (body.transport ?? existing?.transport ?? 'streamable-http') as AdminMcpEntry['transport'],
@@ -585,6 +642,7 @@ export function apply(ctx: Context, config: Config) {
                 headers: (body.headers as Record<string, string> | undefined) ?? existing?.headers,
                 command: body.command === undefined ? existing?.command : String(body.command),
                 args: Array.isArray(body.args) ? body.args.map(String) : existing?.args,
+                enabled: body.enabled === true ? true : undefined,
               }
               const errors = validateServer(entry)
               if (errors.length > 0) { sendJson(res, 400, errorBody(errors.join('; '), 'invalid_mcp')); return }
@@ -609,6 +667,63 @@ export function apply(ctx: Context, config: Config) {
         if (action !== 'enable' && action !== 'disable') { sendJson(res, 400, errorBody('action must be enable or disable', 'invalid_action')); return }
         if (!setSkillEnabled(cfg.admin.skillsDir, skillName, action === 'enable')) { sendJson(res, 409, errorBody('skill not found or already in target state', 'conflict')); return }
         sendJson(res, 200, { skill: skillName, enabled: action === 'enable' })
+      },
+    }))
+    // ── 反馈闭环桥接（P1.5 B1/B2）：三个 provide 服务的生产消费面——此前全工作区零消费方 ──
+    // GET /admin/api/observability — dsh-observability 聚合 + 护栏最近命中（缺席诚实提示）
+    // GET /admin/api/feedback — bkn-feedback gap 分析；POST /admin/api/feedback/resolve — resolved 置位
+    // GET /admin/api/skills/usage — ops-skill-manager usage 台账 top
+    disposers.push(mountRoute({
+      kind: 'prefix',
+      path: '/admin/api/observability',
+      handler: (req: IncomingMessage, res: ServerResponse) => {
+        if (!adminAuthorized(req)) { sendJson(res, 401, errorBody('invalid admin key', 'admin_auth_error')); return }
+        const obs = ctx.get('observability') as unknown as
+          | { aggregate(days?: number): unknown; recentRisk(limit?: number): unknown[] }
+          | undefined
+        if (!obs) { sendJson(res, 404, errorBody('dsh-observability not mounted', 'not_found')); return }
+        try { sendJson(res, 200, { aggregate: obs.aggregate(), recentRisk: obs.recentRisk(20) }) } catch (e) { sendJson(res, 500, errorBody(String(e).slice(0, 160), 'api_error')) }
+      },
+    }))
+    disposers.push(mountRoute({
+      kind: 'prefix',
+      path: '/admin/api/feedback',
+      handler: (req: IncomingMessage, res: ServerResponse) => {
+        if (!adminAuthorized(req)) { sendJson(res, 401, errorBody('invalid admin key', 'admin_auth_error')); return }
+        const fb = ctx.get('bknFeedbackAdmin') as unknown as
+          | { analyze(): unknown; resolve(timestamp: number, tool: string): { ok: boolean; resolvedCount?: number; error?: string } }
+          | undefined
+        const method = (req.method ?? 'GET').toUpperCase()
+        if (method === 'POST') {
+          // POST /admin/api/feedback/resolve — resolved 置位（body: {timestamp, tool}）
+          const parts = new URL(req.url ?? '/', 'http://x').pathname.slice('/admin/api/feedback'.length).replace(/^\//, '').split('/')
+          if (parts[0] !== 'resolve') { sendJson(res, 404, errorBody('unknown feedback action', 'not_found')); return }
+          if (!fb) { sendJson(res, 404, errorBody('bkn-feedback not mounted', 'not_found')); return }
+          void (async () => {
+            try {
+              const body = (await readJsonBody(req) ?? {}) as Record<string, unknown>
+              const ts = Number(body.timestamp)
+              const tool = String(body.tool ?? '')
+              if (!Number.isFinite(ts) || !tool) { sendJson(res, 400, errorBody('timestamp (number) and tool required', 'invalid_request')); return }
+              const r = fb.resolve(ts, tool)
+              if (!r.ok) { sendJson(res, 409, errorBody(r.error ?? 'resolve failed', 'conflict')); return }
+              sendJson(res, 200, { ok: true, resolvedCount: r.resolvedCount })
+            } catch (e) { sendJson(res, 400, errorBody(String(e).slice(0, 120), 'invalid_request')) }
+          })()
+          return
+        }
+        if (!fb) { sendJson(res, 404, errorBody('bkn-feedback not mounted', 'not_found')); return }
+        try { sendJson(res, 200, fb.analyze() as object) } catch (e) { sendJson(res, 500, errorBody(String(e).slice(0, 160), 'api_error')) }
+      },
+    }))
+    disposers.push(mountRoute({
+      kind: 'prefix',
+      path: '/admin/api/skills/usage',
+      handler: (req: IncomingMessage, res: ServerResponse) => {
+        if (!adminAuthorized(req)) { sendJson(res, 401, errorBody('invalid admin key', 'admin_auth_error')); return }
+        const mgr = ctx.get('skillManagerAdmin') as unknown as { usage(): Record<string, { use_count?: number; state?: string }> } | undefined
+        if (!mgr) { sendJson(res, 404, errorBody('ops-skill-manager not mounted', 'not_found')); return }
+        try { sendJson(res, 200, { usage: mgr.usage() }) } catch (e) { sendJson(res, 500, errorBody(String(e).slice(0, 160), 'api_error')) }
       },
     }))
     log.info('[ops-api] admin surface mounted at /admin')
@@ -692,11 +807,31 @@ export function apply(ctx: Context, config: Config) {
         void supervisor.ensureRunning()
       }
     }
-    /** turn 完成后异步 capture（不阻塞响应）+ ALS scope 工具 */
+    /** turn 完成后异步 capture（不阻塞响应）+ ALS scope 工具 + 观测上报（可选，缺席跳过） */
     const afterTurn = (sessionIdOut: string | undefined, answer: string): void => {
       if (memory && memoryKey && answer) {
         memory.capture({ sessionKey: memoryKey, sessionId: sessionIdOut, userContent: lastUserText, assistantContent: answer })
       }
+    }
+    /** 观测上报：runTurn 结果齐备后调用（usage/model 会话名）；失败静默（H-15 推广） */
+    const reportUsage = (result: { sessionId?: string; model?: string; usage: Usage; finishReason: string }): void => {
+      if (!observability) return
+      try {
+        observability.recordUsage({
+          ts: Math.floor(Date.now() / 1000),
+          sessionId: result.sessionId ?? '',
+          model: result.model ?? '',
+          promptTokens: result.usage.prompt_tokens,
+          completionTokens: result.usage.completion_tokens,
+          totalTokens: result.usage.total_tokens,
+          finishReason: result.finishReason,
+        })
+      } catch (e) { log.warn(`[ops-api] usage 上报失败（静默）: ${String(e).slice(0, 120)}`) }
+    }
+    /** 失败 turn 上报（审计报告 Top2）：catch 路径也留痕，/v1/metrics 才能回答失败率。
+     * kind ∈ timeout | error | abandoned（低基数，对齐 OTel GenAI error.type 纪律）。 */
+    const reportFailure = (kind: string, sessionIdOut: string | undefined): void => {
+      reportUsage({ sessionId: sessionIdOut ?? sessionId, usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, finishReason: kind })
     }
     /** runTurn 包一层 ALS：工具执行链读 memoryKey */
     const runWithMemory = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -710,13 +845,16 @@ export function apply(ctx: Context, config: Config) {
       })).catch((e) => {
         if (e && e.name === 'TurnTimeoutError') {
           res.setHeader('X-Ops-Session-Id', sessionId ?? '')
+          reportFailure('timeout', sessionId)
           sendJson(res, 504, errorBody(`turn timeout after ${cfg.turnTimeoutSec}s`, 'timeout_error'))
           return null
         }
+        reportFailure('error', sessionId)
         throw e
       })
       if (!result) return
       afterTurn(result.sessionId, result.content)
+      reportUsage(result)
       res.setHeader('X-Ops-Session-Id', result.sessionId)
       if (renewed) res.setHeader('X-Ops-Session-Renewed', '1')
       sendJson(res, 200, buildCompletion({ id, model: echoModel(result.model), content: result.content, usage: result.usage, finishReason: result.finishReason }))
@@ -740,10 +878,12 @@ export function apply(ctx: Context, config: Config) {
       }))
       resultSessionId = result.sessionId
       afterTurn(result.sessionId, result.content)
+      reportUsage(result)
       for (const chunk of buildFinalChunks(id, echoModel(result.model), result.usage)) write(chunk)
       res.write('data: [DONE]\n\n')
     } catch (e) {
       const isTimeout = e && (e as Error).name === 'TurnTimeoutError'
+      reportFailure(isTimeout ? 'timeout' : 'error', resultSessionId)
       write(errorBody(isTimeout ? `turn timeout after ${cfg.turnTimeoutSec}s` : String(e).slice(0, 200), isTimeout ? 'timeout_error' : 'api_error'))
     } finally {
       res.end()
@@ -850,6 +990,7 @@ export function apply(ctx: Context, config: Config) {
         if (memory && memoryKey && result.content) {
           memory.capture({ sessionKey: memoryKey, sessionId: result.sessionId, userContent: lastUserText, assistantContent: result.content })
         }
+        reportUsage(result)
         write({
           type: 'response.completed',
           response: {
@@ -862,6 +1003,7 @@ export function apply(ctx: Context, config: Config) {
         log.info(`[ops-api] responses(stream) turn done session=${result.sessionId}`)
       } catch (e) {
         const isTimeout = e && (e as Error).name === 'TurnTimeoutError'
+        reportFailure(isTimeout ? 'timeout' : 'error', sessionId)
         write(buildResponsesFailedEvent(id, isTimeout ? `turn timeout after ${cfg.turnTimeoutSec}s` : String(e).slice(0, 200)))
       } finally {
         res.end()
@@ -875,9 +1017,11 @@ export function apply(ctx: Context, config: Config) {
     ).catch((e) => {
       if (e && e.name === 'TurnTimeoutError') {
         res.setHeader('X-Ops-Session-Id', sessionId ?? '')
+        reportFailure('timeout', sessionId)
         sendJson(res, 504, errorBody(`turn timeout after ${cfg.turnTimeoutSec}s`, 'timeout_error'))
         return null
       }
+      reportFailure('error', sessionId)
       throw e
     })
     if (!result) return
@@ -885,6 +1029,7 @@ export function apply(ctx: Context, config: Config) {
     if (memory && memoryKey && result.content) {
       memory.capture({ sessionKey: memoryKey, sessionId: result.sessionId, userContent: lastUserText, assistantContent: result.content })
     }
+    reportUsage(result)
     res.setHeader('X-Ops-Session-Id', result.sessionId)
     sendJson(res, 200, buildResponse({ id, model: parsed.model ?? echoModel(result.model), text: result.content, usage: result.usage }))
     log.info(`[ops-api] responses turn done session=${result.sessionId}`)
@@ -940,6 +1085,26 @@ export function apply(ctx: Context, config: Config) {
     if (method === 'DELETE') {
       // sessionController 无 delete/archive 远程方法（事实核实），诚实返回 405
       sendJson(res, 405, errorBody('session deletion not supported: sessionController exposes no delete/archive command', 'not_implemented'))
+      return
+    }
+    // POST /api/sessions/{id}/cancel — 客户端主动取消（P1c）：sessionController 有 cancel 命令（index.ts:514）
+    if (method === 'POST' && segments[3] === 'cancel') {
+      if (!id) {
+        sendJson(res, 400, errorBody('session id required: POST /api/sessions/{id}/cancel', 'invalid_request_error'))
+        return
+      }
+      if (!validSessionId(id)) {
+        sendJson(res, 400, errorBody('invalid session id', 'invalid_request_error'))
+        return
+      }
+      try {
+        // 幂等语义：已结束/未知会话的 cancel 一律 ok（cancel 内部吞错，吞错原因在 driver.cancel 侧 log.warn）
+        driver.cancel({ sessionId: id })
+        log.info(`[ops-api] session cancel requested: ${id}`)
+        sendJson(res, 200, { object: 'session', id, status: 'cancel_requested' })
+      } catch (e) {
+        sendJson(res, 500, errorBody(`cancel failed: ${String(e).slice(0, 160)}`, 'api_error'))
+      }
       return
     }
     if (method !== 'GET') {

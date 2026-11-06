@@ -36,6 +36,8 @@ export interface McpServerEntry {
   command?: string
   /** stdio 传输的参数 */
   args?: string[]
+  /** 启停位（P1c /admin 单项启停）：false = 声明行带 disabled: true（热更后新会话不加载） */
+  enabled?: boolean
 }
 
 export interface ManagedState {
@@ -69,6 +71,7 @@ export function serializeServer(entry: McpServerEntry): string[] {
   const lines = [
     '    - id: mcp-' + entry.serverName,
     "      name: '@deepseek-ai/dsh-mcp-client'",
+    ...(entry.enabled === false ? ['      disabled: true'] : []),
     '      config:',
     '        serverName: ' + entry.serverName,
     '        transport: ' + entry.transport,
@@ -99,13 +102,16 @@ export function parseManagedServers(content: string): McpServerEntry[] {
   for (const line of lines.slice(begin + 1, end)) {
     const idMatch = /^\s*- id: mcp-(\S+)/.exec(line);
     if (idMatch) {
-      current = { serverName: idMatch[1], transport: 'streamable-http' };
+      current = { serverName: idMatch[1], transport: 'streamable-http', enabled: true };
       servers.push(current);
       inConfig = false;
       inHeaders = false;
       continue;
     }
     if (!current) continue;
+    // disabled: true → enabled=false（P1c /admin 单项启停；其余行不影响）
+    if (/^\s{6}disabled:\s*true\s*$/.test(line)) { current.enabled = false; continue }
+    if (/^\s{6}disabled:\s*false\s*$/.test(line)) { current.enabled = true; continue }
     if (/^\s{6}config:/.test(line)) { inConfig = true; inHeaders = false; continue }
     if (!inConfig) continue;
     if (/^\s{8}headers:/.test(line)) { inHeaders = true; continue }

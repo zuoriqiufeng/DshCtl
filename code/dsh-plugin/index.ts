@@ -25,13 +25,27 @@ import Schema from '@deepseek-ai/schemastery'
 import { BKNResolver, bknWalkIssues } from './resolver.ts'
 import { validateBknContract, handleContractResult, type ContractMode } from './bknContract.ts'
 import { RelationTraverser } from './relations.ts'
-import { DEFAULT_MUTATING_TOOLS, guardDecision, resetRulesCache } from './riskGuard.ts'
+import { DEFAULT_MUTATING_TOOLS, guardDecision, identifyHit, checkActionRisk, resetRulesCache, type GuardDecision } from './riskGuard.ts'
 import { buildTools } from './tools.ts'
-import { configureRetrieval } from './retrieval.ts'
+import { configureRetrieval, refreshBm25IfStale } from './retrieval.ts'
 import { configureGapLog } from './supplement.ts'
 
 export const name = 'i2stream-bkn'
-export const inject = ['tools']
+export const inject = ['tools', 'timer']
+
+/** 放行侧命中广播（advisory/shadow/gray——guardDecision 只在阻断时返回，放行命中经 identifyHit 复查）。
+ * 识别逻辑与 guardDecision 单源（riskGuard.identifyHit），防复刻漂移；纯 try/catch：观测失败绝不影响工具执行（H-15）。 */
+function emitAdvisoryHit(ctx: Context, toolName: string, args: Record<string, unknown>, opts: { enabled: boolean; block: boolean; bknRoot: string; mutatingTools: string[]; ruleSource: string; whitelistPath: string }): void {
+  try {
+    if (!opts.enabled || opts.ruleSource !== 'bkn') return
+    const hit = identifyHit(toolName, args ?? {}, opts.mutatingTools)
+    if (!hit) return
+    const check = checkActionRisk(hit.action, hit.state, opts.bknRoot)
+    if (check.passed) return
+    const verdict = opts.block && check.blockable === true ? 'shadow' : opts.block ? 'advisory' : 'gray'
+    ctx.emit('bkn/risk-hit', { verdict, tool: toolName, action: hit.action, state: hit.state, ruleId: check.ruleId, reason: check.blockReason, blockable: check.blockable === true } satisfies Partial<GuardDecision> & Record<string, unknown>)
+  } catch { /* 观测失败静默 */ }
+}
 
 /** 共享 BKN 根目录（Hermes 与 DSH 共用一份）；env 或 Config 可覆盖 */
 const SHARED_BKN_ROOT = '/hdd/demo/public/i2stream-bkn/bkn'
@@ -68,6 +82,9 @@ export interface Config {
   gapLogPath?: string
   /** skill_manifest.yaml 路径（默认 <bknRoot>/../plugin/skill_manifest.yaml，env I2STREAM_SKILL_MANIFEST 可覆盖） */
   skillManifestPath?: string
+  /** BM25 索引周期刷新间隔（秒；默认 0=关闭）。>0 时定时比对 Qdrant points_count，
+   * 与构建时快照不一致则定向重建索引——Qdrant 知识更新后稀疏检索路径不再不可见（审计报告 Top1）。 */
+  bm25RefreshSec?: number
 }
 
 export const Config = Schema.object({
@@ -83,6 +100,7 @@ export const Config = Schema.object({
   qdrantCollection: Schema.string().default(''),
   gapLogPath: Schema.string().default(''),
   skillManifestPath: Schema.string().default(''),
+  bm25RefreshSec: Schema.natural().default(0),
 })
 
 /**
@@ -176,8 +194,12 @@ export function apply(ctx: Context, config: Config) {
       whitelistPath,
     })
     if (decision) {
+      // 命中广播（观测插件消费；无监听者时 emit 是 no-op，不影响请求路径——H-15）
+      try { ctx.emit('bkn/risk-hit', { verdict: 'block', tool: exec.name, ...decision }) } catch { /* 观测失败不影响护栏 */ }
       return { kind: 'deny' as const, reason: decision.reason ?? 'RiskGuard 拦截' }
     }
+    // 放行侧命中（advisory/shadow/gray）也广播：guardDecision 内部已 console.warn，这里补结构化事件
+    emitAdvisoryHit(ctx, exec.name, args, { enabled: guardEnabled, block: guardBlock, bknRoot, mutatingTools, ruleSource, whitelistPath })
     return next()
   })
 
@@ -185,4 +207,16 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('settings/updated', () => {
     resetRulesCache()
   })
+
+  // 4) BM25 周期刷新（审计报告 Top1：索引此前只在插件加载时构建，Qdrant 知识更新后不可见）。
+  //    bm25RefreshSec 默认 0=关闭（行为与此前完全一致）；>0 时 timer tick 比对 points_count。
+  const bm25RefreshSec = Number((config as { bm25RefreshSec?: number }).bm25RefreshSec ?? 0)
+  if (bm25RefreshSec > 0) {
+    const bm25Tick = (): void => {
+      refreshBm25IfStale(deps.qdrantCollection).catch(() => { /* 刷新失败静默（H-15），下次 tick 再试 */ })
+    }
+    ctx.setTimeout(bm25Tick, bm25RefreshSec * 1000)
+    ctx.setInterval(bm25Tick, bm25RefreshSec * 1000)
+    log.info(`[i2stream-bkn] BM25 周期刷新已启用：every ${bm25RefreshSec}s collection=${deps.qdrantCollection}`)
+  }
 }

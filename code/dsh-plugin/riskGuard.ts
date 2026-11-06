@@ -534,23 +534,10 @@ export function guardDecision(
   if (opts.ruleSource === 'whitelist') {
     return whitelistGuardDecision(toolName, args, { enabled: opts.enabled, block: opts.block, whitelistPath: opts.whitelistPath ?? '' })
   }
-  const a = args ?? {}
-
-  // 路径1: 显式动作参数（未来 i2agent MCP 暴露动作 Tool 时）
-  let action = normalizeAction(String(a.operation ?? a.action ?? ''))
-  let state = String(a.state ?? a.current_state ?? a.rule_state ?? '')
-
-  // 路径2: mutating tool 的命令文本识别
-  if (!action && opts.mutatingTools.includes(toolName)) {
-    const command = String(a.command ?? a.code ?? a.content ?? a.new_string ?? '')
-    action = detectActionFromCommand(command)
-    if (!state) {
-      const m = command.match(/(?<![a-zA-Z0-9_])(RUNNING|FULLSYNC|ABNORMAL|STOPPED|OFFLINE|ONLINE|NORMAL)(?![a-zA-Z0-9_])/i)
-      if (m) state = m[1]
-    }
-  }
-
-  if (!action) return null // 非受控动作，放行
+  // 受控动作识别（单源：identifyHit——guardDecision 与放行侧事件广播共用，防复刻漂移）
+  const hit = identifyHit(toolName, args ?? {}, opts.mutatingTools)
+  if (!hit) return null // 非受控动作，放行
+  const { action, state } = hit
 
   const check = checkActionRisk(action, state, opts.bknRoot)
   if (check.passed) return null
@@ -566,6 +553,27 @@ export function guardDecision(
   }
   console.warn(`[bkn-plugin] RiskGuard blocked: tool=${toolName} action=${action} state=${state} rule=${check.ruleId}`)
   return { action, state, ruleId: check.ruleId, reason, blockable }
+}
+
+/** 受控动作识别（单源纯函数）：guardDecision 的阻断/放行判定与 index.ts 的 advisory 事件广播共用此实现。
+ * 返回 null = 非受控动作。路径1: 显式动作参数（operation/action）；路径2: mutating tool 的命令文本识别 + 状态词提取。 */
+export function identifyHit(toolName: string, args: Record<string, unknown>, mutatingTools: string[]): { action: string; state: string } | null {
+  const a = args ?? {}
+  // 路径1: 显式动作参数（未来 i2agent MCP 暴露动作 Tool 时）
+  let action = normalizeAction(String(a.operation ?? a.action ?? ''))
+  let state = String(a.state ?? a.current_state ?? a.rule_state ?? '')
+
+  // 路径2: mutating tool 的命令文本识别
+  if (!action && mutatingTools.includes(toolName)) {
+    const command = String(a.command ?? a.code ?? a.content ?? a.new_string ?? '')
+    action = detectActionFromCommand(command)
+    if (!state) {
+      const m = command.match(/(?<![a-zA-Z0-9_])(RUNNING|FULLSYNC|ABNORMAL|STOPPED|OFFLINE|ONLINE|NORMAL)(?![a-zA-Z0-9_])/i)
+      if (m) state = m[1]!
+    }
+  }
+  if (!action) return null
+  return { action, state }
 }
 
 // ── 规则源：whitelist（proposal §3.4 通用化；首个消费方 = SQL 转换域）──

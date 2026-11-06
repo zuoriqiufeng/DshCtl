@@ -5,7 +5,7 @@
  * Responses API 形状。仅支持子集：
  *   - input: string | Array<{role:'user'|'assistant', content:string}>（system 显式 400）
  *   - model: 可选（覆盖默认）
- *   - stream: 暂不支持（stream:true → 400，二期实现）
+ *   - stream: 已支持（P5a：`response.created → output_text.delta → response.completed` SSE）
  *   - 未知字段白名单校验：Object.keys(body) 中不在允许集的 → 400 unsupported field
  *
  * 响应形状（非流式）：

@@ -10,7 +10,7 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, rmSync, cpSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, dirname, relative } from 'node:path'
+import { join, dirname, relative, resolve, isAbsolute } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
 import type { PluginRegistry } from './plugin.ts'
@@ -113,6 +113,35 @@ export function collectPeerDeps(dir: string): string[] {
 }
 
 export interface ScaffoldResult { dir: string; manifest: PluginManifest; createdManifest: boolean; pkgChanges: string[]; warnings: string[]; errors: string[] }
+
+/** 相对 import 越出插件根的条目（S1 自包含检查；pack fail-loud 与 check R12 共用同一实现） */
+export interface CrossImportHit { file: string; spec: string }
+
+/**
+ * 扫目录全部 *.ts 的相对 import，解析到 dir 之外的即跨插件依赖。
+ * 注意：只追相对路径（./ / ../）——包名与 /、node: 绝对路径是外部依赖，归 peerDependencies 管。
+ */
+export function findCrossPluginImports(dir: string): CrossImportHit[] {
+  const hits: CrossImportHit[] = []
+  const root = resolve(dir)
+  const walk = (d: string): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (['node_modules', 'lib', 'dist', '.git'].includes(e.name) || e.name.startsWith('.')) continue
+      const fp = join(d, e.name)
+      if (e.isDirectory()) { walk(fp); continue }
+      if (!e.name.endsWith('.ts')) continue
+      const src = readFileSync(fp, 'utf8')
+      for (const m of src.matchAll(/(?:from\s+|import\s+)['"](\.[^'"]+)['"]/g)) {
+        const spec = m[1]!
+        const target = resolve(dirname(fp), spec)
+        const rel = relative(root, target)
+        if (rel.startsWith('..') || isAbsolute(rel)) hits.push({ file: relative(root, fp), spec })
+      }
+    }
+  }
+  if (existsSync(root)) walk(root)
+  return hits
+}
 
 /**
  * scaffold：把插件目录补成自描述单元。
@@ -295,6 +324,16 @@ export function packPlugin(reg: PluginRegistry, pluginId: string, opts: { outDir
     }
   }
   walk(dir, staging)
+
+  // ⓪ S1 自包含 fail-loud（boundary-direction §3-2）：相对 import 越出插件根 = 跨插件依赖，静默打包会产出跑不起来的包
+  const crossImports = findCrossPluginImports(staging)
+  if (crossImports.length) {
+    return {
+      ok: false,
+      errors: [`自包含检查失败（S1：pack 产物不得含跨插件依赖，见 plugin-boundary-direction.md §2.2）`, ...crossImports.map((c) => `  ${c.file}: import '${c.spec}' 越出插件根`), `如确属外部包请用 peerDependencies（包名 import），相对路径 import 不得指向本插件目录之外`],
+      log,
+    }
+  }
 
   // ①' BKN 快照（--with-bkn）——快照与元数据只进 staging，源目录零污染
   let bknSnapshot: BknSnapshotMeta | undefined

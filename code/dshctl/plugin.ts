@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { loadYamlText, dumpYaml, atomicWrite } from './yml.ts'
 import type { DomainSpec } from './domain.ts'
-import { loadPluginManifest, type PluginManifest } from './unitize.ts'
+import { loadPluginManifest, findCrossPluginImports, type PluginManifest } from './unitize.ts'
 
 export interface PluginEntry {
   id: string
@@ -142,8 +142,17 @@ export function checkDomainPlugins(spec: DomainSpec, reg: PluginRegistry): Array
       out.push({ level: 'error', msg: `插件 '${r.id}' path 漂移：领域=${r.path} 库=${e.path}` }); continue
     }
     if (!e.trusted) { out.push({ level: 'warn', msg: `插件 '${r.id}' 未信任（git/zip 导入件需人工信任：dshctl plugin trust ${r.id}）` }); continue }
-    const layout = r.path.startsWith(join(spec.dsh_home, 'plugins') + '/') ? 'vendored' : 'in-place'
-    out.push({ level: 'pass', msg: `插件 '${r.id}' 与库对齐（${e.source}/${layout}）` })
+    // R12 扩展（S1 机器约束，boundary-direction §3-3）：in-place 插件含跨插件相对 import = 越界，error。
+    // vendored 不查——拷贝产物与源目录本就分离，源目录才需要守边界。
+    const layout0 = r.path.startsWith(join(spec.dsh_home, 'plugins') + '/') ? 'vendored' : 'in-place'
+    if (layout0 === 'in-place') {
+      const hits = findCrossPluginImports(dirname(e.path))
+      if (hits.length) {
+        out.push({ level: 'error', msg: `插件 '${r.id}' 含跨插件相对 import（S1 越界）：${hits.slice(0, 3).map((h) => `${h.file}→'${h.spec}'`).join('；')}${hits.length > 3 ? ` 等 ${hits.length} 处` : ''}——自包含化或改 peerDependencies` })
+        continue
+      }
+    }
+    out.push({ level: 'pass', msg: `插件 '${r.id}' 与库对齐（${e.source}/${layout0}）` })
   }
   if (!refs.length) out.push({ level: 'pass', msg: '领域未引用插件' })
   return out
