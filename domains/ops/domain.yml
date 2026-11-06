@@ -44,6 +44,22 @@ plugins:
       # 可调：logDir / logStem / logLevel(off|error|warn|info|debug) / logMaxBytes /
       #       logBackups / logRetentionDays(0=永久) / logTextMaxChars(0=不截断)
       logLevel: info
+  # 观测插件（roadmap P1a，2026-11-03）：usage 留档 + 护栏审计 + /v1/metrics。
+  # dataDir 缺省 = $DSH_HOME/observability；缺席时 ops-api 自动降级（不挂 metrics 路由）。
+  - id: dsh-observability
+    path: /hdd/demo/public/dsh-info/code/dsh-observability/index.ts
+    config:
+      enabled: true
+      dataDir: /hdd/demo/public/dsh-info/.dsh-home/observability
+  # 反馈回流插件（roadmap P1b，2026-11-03）：capture_correction + gap_log 周期报告。
+  # gapLogPath 与 bkn-plugin 同文件（闭环同一份日志）；产出仅为建议清单，不自动改 BKN。
+  - id: bkn-feedback
+    path: /hdd/demo/public/dsh-info/code/bkn-feedback/index.ts
+    config:
+      enabled: true
+      gapLogPath: /hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl
+      reportDir: /hdd/demo/public/dsh-info/.dsh-home/feedback-reports
+      intervalHours: 168
 api_server:
   port: 8643
   api_key_env: OPS_API_KEY

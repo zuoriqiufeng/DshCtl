@@ -114,3 +114,38 @@ plugins:
     path: /hdd/demo/public/dsh-info/code/intent-router/index.ts
     trusted: true
     added_at: 2026-10-08
+  - id: dsh-observability
+    name: dsh-plugin-dsh-observability
+    description: 观测插件（跨切面）。usage 留档（ops-api afterTurn 上报 → 按日 JSONL + 512KB×3 轮转）、RiskGuard 命中审计（订阅 bkn/risk-hit 事件，block/advisory/shadow/gray 分档）、/v1/metrics JSON 聚合与 /admin 观测卡片数据源。采集失败静默不影响请求（H-15 推广）。
+    provides:
+      - observability（usage 留档 + 护栏审计 + 聚合只读服务）
+    tier: extension
+    category: 观测
+    source: local
+    external:
+      - key: data-dir
+        desc: 观测落盘目录（usage/risk JSONL）
+        config: dataDir
+    path: /hdd/demo/public/dsh-info/code/dsh-observability/index.ts
+    trusted: true
+    added_at: 2026-11-03
+  - id: bkn-feedback
+    name: dsh-plugin-bkn-feedback
+    description: BKN 反馈回流插件（跨切面）。capture_correction 工具把用户纠正写入共享 gap_log（打通 user_supplied 死字段）+ curator 式周期报告（置信度分布/高频 gap/积压清单）。不 import dsh-plugin、不自动改 BKN 数据——产出仅为知识更新建议清单。
+    provides:
+      - capture_correction（用户纠正回流）
+      - gap_log 周期分析报告
+    tier: extension
+    category: 反馈回流
+    source: local
+    external:
+      - key: gap-log
+        desc: 与 dsh-plugin 共享的 gap 日志（同文件防漂移；只追加）
+        config: gapLogPath
+        env: I2STREAM_GAP_LOG
+      - key: report-dir
+        desc: 周期报告输出目录
+        config: reportDir
+    path: /hdd/demo/public/dsh-info/code/bkn-feedback/index.ts
+    trusted: true
+    added_at: 2026-11-03

@@ -1,0 +1,17 @@
+# dsh.plugin.yml —— dsh-observability 自描述（schema:1）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）
+# external: 外部依赖声明——本插件无 HTTP/网络类依赖；dataDir 是唯一外部资源（落盘目录）
+schema: 1
+id: dsh-observability
+name: dsh-observability
+entry: index.ts
+layout: in-place
+description: 观测插件：usage 留档 + RiskGuard 命中审计 + /v1/metrics 聚合（跨切面能力，roadmap P1a）
+category: 观测
+config:
+  enabled: true
+  dataDir: ''
+  maxBytes: 524288
+  backups: 3
+provides:
+  - observability

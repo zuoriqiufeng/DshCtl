@@ -1,0 +1,18 @@
+# dsh.plugin.yml —— bkn-feedback 自描述（schema:1）
+# layout: in-place=源码原地（patch 指工作区路径，改源码即生效）
+# external: gapLogPath 指向与 dsh-plugin 共享的 gap_log.jsonl（同文件防漂移）；reportDir 为报告输出目录
+schema: 1
+id: bkn-feedback
+name: bkn-feedback
+entry: index.ts
+layout: in-place
+description: BKN 反馈回流插件：capture_correction 工具 + gap_log 周期分析报告（把只写不读的闭环闭上；roadmap P1b）
+category: 反馈回流
+config:
+  enabled: true
+  gapLogPath: ''
+  reportDir: ''
+  intervalHours: 168
+  firstRunDelaySec: 120
+provides:
+  - bknFeedbackAdmin

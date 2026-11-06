@@ -1,0 +1,25 @@
+{
+  "name": "dsh-plugin-dsh-observability",
+  "version": "0.1.0",
+  "private": true,
+  "description": "观测插件：usage 留档 + RiskGuard 命中审计 + /v1/metrics 聚合（跨切面能力）",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.ts",
+    "dsh.plugin.yml",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  }
+}

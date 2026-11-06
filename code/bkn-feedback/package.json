@@ -1,0 +1,27 @@
+{
+  "name": "dsh-plugin-bkn-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BKN 反馈回流插件：capture_correction 工具 + gap_log 周期分析报告",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "*.ts",
+    "dsh.plugin.yml",
+    "package.json"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  }
+}
