@@ -14,6 +14,8 @@
 | `code/ops-api/` | api-server + 会话桥 + 记忆 + supervisor | 外部插件，不进 harness 仓 |
 | `code/ops-skill-manager/` | 技能自管理插件（skill_manage 工具 + usage 台账 + curator 迁移） | 外部插件，不进 harness 仓 |
 | `code/intent-router/` | 分层意图识别插件（正则/精确 → 别名+BM25(+向量) → 不达门限不干预） | 外部插件，不进 harness 仓；意图体系是生成物（`gen-intent-taxonomy.ts`），只有 `overrides.ts` 可手改 |
+| `code/dsh-observability/` | 观测插件（跨切面）：usage 留档 + 护栏命中审计 + 聚合只读服务（供 /v1/metrics 与 /admin） | 外部插件；零跨插件 import——耦合只走事件名/服务名；采集失败静默（H-15 推广） |
+| `code/bkn-feedback/` | 反馈回流插件（跨切面）：`capture_correction` 工具 + gap_log 周期报告 | 外部插件；gap_log 只按 JSONL 行协议消费（不 import dsh-plugin）；产出仅为建议清单，不自动改 BKN |
 | `code/dshctl/` | 领域编排 CLI（v0.1~v1.1 全量；使用手册 `doc/dshctl-manual.md`） | 交付期工具，只读写文件与配置 |
 | `plugin-registry/` | 插件库：registry.yml 目录 + core.yml 核心功能清单（R11 红线：功能不可缺、功能槽内实现可替换；任何核心 id 可经 slots 声明替代成员后替换）+ sources/ 导入件 | 登记引用为主；git/zip 导入件 trusted=false 需人工信任 |
 | `code/presets/i2stream-ops/` | 运维 agent preset 作者源（persona + 热路径） | 热路径块由脚本生成，禁止手改；apply 时内联进 profile patch 声明行（v0.1.7 声明式） |

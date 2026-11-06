@@ -11,6 +11,8 @@
 | `code/dsh-plugin/` | BKN 插件（TS：12 工具 + RiskGuard 护栏 + 检索栈） |
 | `code/ops-api/` | api-server + 会话桥 + 记忆 + supervisor 插件 |
 | `code/ops-skill-manager/` | 技能自管理（`skill_manage` 工具 + usage 台账 + curator 迁移） |
+| `code/dsh-observability/` | 观测插件：usage 留档（日切 JSONL + 轮转）、护栏命中审计、/v1/metrics 聚合 |
+| `code/bkn-feedback/` | 反馈回流插件：`capture_correction` 纠错入 gap_log + 周期报告 |
 | `code/dshctl/` | 领域编排 CLI + GUI（使用手册 `doc/dshctl-manual.md`） |
 | `code/presets/i2stream-ops/` | 运维 agent preset（`hotpath.md` 由脚本生成，禁止手改） |
 | `code/capability-packs/` | 能力包定义（core / file-ops / remote-exec / script） |
@@ -31,9 +33,11 @@ node --import tsx/esm ../code/dsh-plugin/self-test.ts
 node --import tsx/esm ../code/ops-api/self-test.ts
 node --import tsx/esm ../code/intent-router/self-test.ts
 node --import tsx/esm ../code/ops-skill-manager/self-test.ts
+node --import tsx/esm ../code/dsh-observability/self-test.ts
+node --import tsx/esm ../code/bkn-feedback/self-test.ts
 node --import tsx/esm ../code/dshctl/self-test.ts
 
-# 七环节一键 CI（self-test ×5 + upgrade-check + check；自带 tsx，任意目录可跑）
+# 九环节一键 CI（self-test ×7 + upgrade-check + check；自带 tsx，任意目录可跑）
 bash code/dshctl/ci.sh          # 或 dshctl-selftest
 
 # HTTP 契约与计时冒烟（需现网实例在跑）

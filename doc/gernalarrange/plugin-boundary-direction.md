@@ -184,9 +184,9 @@
 
 ## 8. 待决开放项
 
-1. S1 校验规则的编号与形态（新增 R15？还是并入 R12 的插件对齐检查？两者都做？）。
+1. ~~S1 校验规则的编号与形态~~ **✅ 已拍板并实施（2026-11-03，enhance-exec-plan 阶段A）**：并入 R12 语义（`plugin.ts checkDomainPlugins` 内加跨插件相对 import 检查，in-place → error）；同批 `unitize.ts packPlugin` 加 fail-loud 自包含检查（staging 后、tsc 前）。开放项①关闭。
 2. 是否为 dshctl 引入 `DSHCTL_ROOT` 类根覆盖（S2 前置；也可先作为通用改进做）。
-3. 外部资源是否进 `dsh.plugin.yml`（`resources: [...]` 声明 + pack/vendored 的拷贝与重写规则）。
+3. 外部资源是否进 `dsh.plugin.yml`（`resources: [...]` 声明 + pack/vendored 的拷贝与重写规则）。——2026-11-05 复核补充：现状 S1 只护相对 import（`.ts`），`readFileSync('../other-plugin/x.yml')` 类 runtime 越界资源读取无护栏（findCrossPluginImports 覆盖不到）；启动本项时一并补。
 4. `domain export` 是否要补"把 in-place 插件源码一并打包"（现状导入机需自备项目目录，与"自包含可搬移"的表述有落差）。
 
 ---

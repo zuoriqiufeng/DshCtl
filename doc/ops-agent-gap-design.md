@@ -101,7 +101,7 @@ ops-api/index.ts 路由层:
 }
 ```
 - 不支持的字段（tools/functions/reasoning config）显式 400，不静默忽略
-- `stream: true` 首期不支持（400），二期按 SSE `response.output_text.delta` 事件补
+- `stream: true` 首期不支持（400），二期按 SSE `response.output_text.delta` 事件补（✅ 已由 gap-exec-plan P5a 补齐：`response.created → output_text.delta → response.completed`）
 
 ### 2.3 `/v1/capabilities` 响应
 
