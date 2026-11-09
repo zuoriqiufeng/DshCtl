@@ -227,12 +227,6 @@ export function loadErrorCodes(bknRoot: string): Record<string, CodeEntry> {
   return table
 }
 
-export function resetErrorSemanticsCache(): void {
-  semCache = null
-  codesCache = null
-  semPathUsed = ''
-  codesPathUsed = ''
-}
 
 // ── 分类（py classify_error_message / classify_official_meaning / _official_meaning_for 1:1） ──
 

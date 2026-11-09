@@ -198,10 +198,6 @@ function loadMechanisms(bknRoot: string): Record<string, unknown> {
   return data
 }
 
-export function resetMechanismCache(): void {
-  mechCache = null
-  mechPathUsed = ''
-}
 
 /** 非根类机制 = 可独立出证的候选池（根类「不独立出证」，见 mechanisms.yaml entry_fields）。 */
 function leafMechanisms(bknRoot: string): Mechanism[] {

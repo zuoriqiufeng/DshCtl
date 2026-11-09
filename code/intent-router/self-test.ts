@@ -11,7 +11,8 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { SYMPTOM_ALIASES, ERROR_ALIASES } from './aliases.ts'
 import { buildScorer, classify } from './engine.ts'
 import { isLikelyGreeting, lastUserText, normalizeText, stripSlashGesture } from './extract.ts'
@@ -28,6 +29,7 @@ import { cosine } from './bm25.ts'
 import { OVERRIDES } from './overrides.ts'
 import { extractStackSignal, STACK_SKILL } from './stack.ts'
 
+const __here = dirname(fileURLToPath(import.meta.url))
 let failures = 0
 let passed = 0
 function check(label: string, cond: boolean, detail = ''): void {
@@ -481,7 +483,7 @@ console.log('\n[11] 文件日志：日期/大小双维轮转 + 级别门 + 易�
 
   // 枚举：新旧命名兼容，过滤无关文件
   writeFileSync(join(dir, 'unrelated.log'), 'x\n')
-  const listed = listDataFiles(base).map((f) => f.split('/').pop())
+  const listed = listDataFiles(base).map((f) => basename(f.replace(/\\/g, '/')))
   check('listDataFiles 兼容日文件与分片', listed.some((n) => n?.startsWith(`intent-router_${today}.log`)))
   check('listDataFiles 排除无关文件', !listed.includes('unrelated.log'), listed.join(','))
   check('listDataFiles 排除 .bak 等非数字后缀（不误收）', listDataFiles(base).every((f) => !f.endsWith('.bak')))
@@ -544,6 +546,45 @@ console.log('\n[12] stack：P6 堆栈信号（批次 D1）')
   check('stack：jstack/线程头 → thread 信号', s3?.kind === 'thread', JSON.stringify(s3?.kind))
   check('stack：普通文本不误报', extractStackSignal('增量同步卡住不动了，帮我排查一下') === null)
   check('stack：空/失败 → null（H-15）', extractStackSignal('') === null)
+}
+
+// [13] 批 A-1：别名漂移断言 —— intent-router 副本(aliases.ts) ≡ dsh-plugin constants.ts(唯一权威)
+// 用 node:fs 读两源文本逐键比对（不 import dsh-plugin 符号，pack fail-loud 安全）；任一表漂移即 exit 1。
+console.log('\n[13] 别名漂移断言（批 A-1：副本 ≡ constants.ts 唯一权威）')
+{
+  const src = readFileSync(join(__here, '../dsh-plugin/constants.ts'), 'utf8')
+  const cpy = readFileSync(join(__here, './aliases.ts'), 'utf8')
+  const extract = (text: string, name: string): Map<string, string> => {
+    const map = new Map<string, string>()
+    const start = text.indexOf('export const ' + name)
+    if (start < 0) return map
+    const open = text.indexOf('{', start)
+    const close = text.indexOf('}', open)
+    if (open < 0 || close < 0 || close <= open) return map
+    for (const line of text.slice(open + 1, close).split('\n')) {
+      const ci = line.indexOf(':')
+      if (ci < 0) continue
+      const key = line.slice(0, ci).replace(/['"\s]/g, '')
+      const vm = /['"]([^'"]*)['"]/.exec(line.slice(ci + 1))
+      if (vm && key) map.set(key, vm[1])
+    }
+    return map
+  }
+  let errAl: Map<string, string> = new Map()
+  for (const name of ['ERROR_ALIASES', 'SYMPTOM_ALIASES']) {
+    const a = extract(src, name)
+    const b = extract(cpy, name)
+    if (name === 'ERROR_ALIASES') errAl = a
+    const missing = [...a].filter(([k]) => !b.has(k)).map(([k]) => k)
+    const extra = [...b].filter(([k]) => !a.has(k)).map(([k]) => k)
+    const diff = [...a].filter(([k, v]) => b.get(k) !== v).map(([k]) => k + ':' + a.get(k) + '≠' + b.get(k))
+    check('副本与权威表逐键一致（' + name + '）',
+      a.size > 0 && missing.length === 0 && extra.length === 0 && diff.length === 0,
+      'missing[' + missing + '] extra[' + extra + '] diff[' + diff + ']')
+  }
+  check('别名黄金抽样（REDO位点异常 → -4002 两源同值）',
+    extract(src, 'ERROR_ALIASES').get('REDO位点异常') === '-4002' && errAl.get('REDO位点异常') === '-4002',
+    String(extract(src, 'ERROR_ALIASES').get('REDO位点异常')))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -8,11 +8,12 @@
  */
 
 import { BM25Scorer, buildExactIndex, rrfFusion, type Bm25Doc, type FusionHit } from './bm25.ts'
+import { DEFAULT_EMBED_URL, DEFAULT_QDRANT_COLLECTION, DEFAULT_QDRANT_URL } from './constants.ts'
 
 export const RETRIEVAL = {
-  qdrantUrl: process.env.I2STREAM_QDRANT_URL ?? 'http://127.0.0.1:6333',
-  embedUrl: process.env.I2STREAM_EMBED_URL ?? 'http://127.0.0.1:8096/embed',
-  collection: process.env.I2STREAM_QDRANT_COLLECTION ?? 'i2stream_collection',
+  qdrantUrl: process.env.I2STREAM_QDRANT_URL ?? DEFAULT_QDRANT_URL,
+  embedUrl: process.env.I2STREAM_EMBED_URL ?? DEFAULT_EMBED_URL,
+  collection: process.env.I2STREAM_QDRANT_COLLECTION ?? DEFAULT_QDRANT_COLLECTION,
   timeoutMs: 8000,
   scoreThreshold: 0.3, // config.yaml search.score_threshold
   fallbackScore: 0.1, // search.bm25_fallback_score

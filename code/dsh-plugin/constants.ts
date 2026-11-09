@@ -165,6 +165,14 @@ export const DIAG_RETRIEVAL_GUIDE = 'store:i2stream_collection#错误码 → sto
 // 与 DIAG_RETRIEVAL_GUIDE 解耦，避免口径/手势变更互相牵连。
 export const DIAG_EVIDENCE_COLLECTION = 'store:log_patterns_collection#错误码'
 
+// ── 外部依赖内置默认（2026-11-09 批A-2：唯一默认源，AGENTS §9 端口约定同值）────────
+// 解析链末端 config → env → 本组常量；index/retrieval/supplement 全部引用，删除跨文件字面量多源。
+export const DEFAULT_BKN_ROOT = '/hdd/demo/public/i2stream-bkn/bkn'
+export const DEFAULT_QDRANT_URL = 'http://127.0.0.1:6333'
+export const DEFAULT_EMBED_URL = 'http://127.0.0.1:8096/embed'
+export const DEFAULT_QDRANT_COLLECTION = 'i2stream_collection'
+export const DEFAULT_GAP_LOG = '/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl'
+
 // 未登记错误码的处理规则（25 号：原锚点表的兜底行 → 规则常量）
 export const UNKNOWN_RULE =
   '含义未识别或未给消息文本 → ①带消息文本重问 ②主库用产品码纯代号（-NNNN）直查（命中码表定义）' +

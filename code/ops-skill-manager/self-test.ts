@@ -4,7 +4,7 @@
  * 守卫（路径逃逸/预置只读/重名）；curator 生命周期迁移与豁免。
  */
 
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { bump, readUsage, setState, seedIfMissing } from './store.ts'
@@ -33,6 +33,18 @@ bump(dir, 'gamma')  // first bump without createdBy creates bare record
 ok(!readUsage(dir).gamma.created_by, 'first bump without createdBy leaves field unset')
 bump(dir, 'gamma', { createdBy: 'agent' })  // second bump must merge created_by
 ok(readUsage(dir).gamma.created_by === 'agent', 'bump merges createdBy on existing record')
+
+// 批 A-4：损坏台账 → 备份 + 不当作空表（防 bump 覆盖抹数据）
+{
+  const cdir = mkdtempSync(join(tmpdir(), 'skill-mgr-corrupt-'))
+  writeFileSync(join(cdir, '.usage.json'), '{broken json!!', 'utf8')
+  const t = readUsage(cdir)
+  ok(Object.keys(t).length === 0, '损坏台账读取返回空（不抛，H-15）')
+  const files = readdirSync(cdir)
+  ok(files.some((f) => f.startsWith('.usage.json.corrupt-')), '损坏台账被备份（.usage.json.corrupt-<ts>）')
+  ok(!files.includes('.usage.json'), '损坏原件已移走（不再会被 bump 当作空表全量覆盖）')
+  rmSync(cdir, { recursive: true, force: true })
+}
 
 console.log('== ledger ==')
 const blobSha = storeBlob(dir, 'hello world')

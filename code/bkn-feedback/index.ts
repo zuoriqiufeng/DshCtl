@@ -70,7 +70,7 @@ function rotateIfNeeded(path: string, maxBytes: number, backups: number): void {
       if (existsSync(from)) renameSync(from, to)
     }
     renameSync(path, `${path}.1`)
-  } catch { /* 轮转失败不抛 */ }
+  } catch (e) { /* 批 A-3：轮转失败降级 + warn */ console.warn('[bkn-feedback] gap_log 轮转失败（H-15 降级）：' + String(e).slice(0, 120)) }
 }
 
 /** correction 文本消毒（审计报告 Top6 注入面）：strip 控制字符（防 JSONL 行断裂）、长度截断。

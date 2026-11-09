@@ -22,11 +22,17 @@ provides:
   - design_solution
   - explain_architecture
   - search_qdrant
+  - check_plan
+  - diagnose_mechanism
 external:
   - key: qdrant
     desc: 外部向量库 Qdrant（search_qdrant / diagnose_db_link 的 dense 检索）
     config: qdrantUrl
     env: I2STREAM_QDRANT_URL
+  - key: qdrant-collection
+    desc: Qdrant collection 名（dense 检索集合；未配时用内置默认。批 B-6 登记）
+    config: qdrantCollection
+    env: I2STREAM_QDRANT_COLLECTION
   - key: embed-sidecar
     desc: BGE embedding sidecar（查询向量化，与 Hermes 同模型）
     config: embedUrl

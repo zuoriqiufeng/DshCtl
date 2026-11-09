@@ -10,7 +10,7 @@
 | 路径 | 职责 | 规则 |
 |---|---|---|
 | `doc/` | 方案文档统一归档处 | 所有方案/实施计划/验收回填只放这里；插件内 `doc/` 仅放实现设计 |
-| `code/dsh-plugin/` | BKN 插件（TS，12 工具 + 护栏 + 检索栈） | 外部插件，不进 harness 仓 |
+| `code/dsh-plugin/` | BKN 插件（TS，14 工具 + 护栏 + 检索栈） | 外部插件，不进 harness 仓 |
 | `code/ops-api/` | api-server + 会话桥 + 记忆 + supervisor | 外部插件，不进 harness 仓 |
 | `code/ops-skill-manager/` | 技能自管理插件（skill_manage 工具 + usage 台账 + curator 迁移） | 外部插件，不进 harness 仓 |
 | `code/intent-router/` | 分层意图识别插件（正则/精确 → 别名+BM25(+向量) → 不达门限不干预） | 外部插件，不进 harness 仓；意图体系是生成物（`gen-intent-taxonomy.ts`），只有 `overrides.ts` 可手改 |
@@ -103,7 +103,7 @@ bash /hdd/demo/public/dsh-info/.dsh-home/run-ops.sh {start|stop|restart|status|l
 # dshctl（自带 tsx，任意目录可跑，无需 cd）
 dshctl check ops --ci
 dshctl plugin list   # 插件库一览（core 必须件 + extension）
-dshctl-selftest   # 或 bash /hdd/demo/public/dsh-info/code/dshctl/ci.sh（六环节一键）
+dshctl-selftest   # 或 bash /hdd/demo/public/dsh-info/code/dshctl/ci.sh（九环节一键）
 
 # embed sidecar
 HF_HOME=/hdd/demo/public/chunk/HuggingFace HF_HUB_OFFLINE=1 \

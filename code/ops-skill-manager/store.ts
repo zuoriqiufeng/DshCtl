@@ -28,13 +28,30 @@ export type UsageTable = Record<string, UsageRecord>
 
 const usagePath = (skillsDir: string): string => join(skillsDir, '.usage.json')
 
+/** 批 A-4（2026-11-09）：损坏台账处理——绝不静默当空表，先备份再 warn（防 bump 全量覆盖抹数据）。 */
+const backupPath = (file: string): string => file + '.corrupt-' + Date.now()
+
+function backupCorrupt(file: string): void {
+  try {
+    const dst = backupPath(file)
+    renameSync(file, dst)
+    console.warn('[ops-skill-manager] usage 台账损坏，已备份并跳过本次读取：' + file + ' -> ' + dst)
+  } catch (e2) {
+    console.warn('[ops-skill-manager] usage 台账损坏且备份失败：' + String(e2).slice(0, 120))
+  }
+}
+
 export function readUsage(skillsDir: string): UsageTable {
   const file = usagePath(skillsDir)
   if (!existsSync(file)) return {}
   try {
     const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as UsageTable : {}
-  } catch {
+    const ok = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    if (!ok) backupCorrupt(file)
+    return ok ? parsed as UsageTable : {}
+  } catch (e) {
+    backupCorrupt(file)
+    console.warn('[ops-skill-manager] usage 台账解析失败：' + String(e).slice(0, 120))
     return {}
   }
 }

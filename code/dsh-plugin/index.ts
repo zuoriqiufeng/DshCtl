@@ -2,7 +2,7 @@
  * index.ts — i2Stream BKN 业务知识网络的 DSH 原生插件入口
  *
  * 能力：
- *   1. 4 个 BKN 查询工具（query_product / resolve_relation / check_action_risk / resolve_operation）
+ *   1. 14 个 BKN 工具（查询/诊断/关系/护栏/机制归因/组合，见 tools.ts + planCheck.ts + mechanism.ts）
  *   2. RiskGuard 风险护栏：经 tools/pre-execute 在写操作执行前拦截
  *      （规则来源于 bkn/risks/constraints.bkn，非硬编码）
  *
@@ -20,6 +20,7 @@
 
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_BKN_ROOT, DEFAULT_EMBED_URL, DEFAULT_GAP_LOG, DEFAULT_QDRANT_COLLECTION, DEFAULT_QDRANT_URL } from './constants.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { BKNResolver, bknWalkIssues } from './resolver.ts'
@@ -48,13 +49,13 @@ function emitAdvisoryHit(ctx: Context, toolName: string, args: Record<string, un
 }
 
 /** 共享 BKN 根目录（Hermes 与 DSH 共用一份）；env 或 Config 可覆盖 */
-const SHARED_BKN_ROOT = '/hdd/demo/public/i2stream-bkn/bkn'
-/** 外部依赖内置默认（解析链末端：config → env → 本组常量；与 AGENTS.md §9 端口约定同值） */
+const SHARED_BKN_ROOT = DEFAULT_BKN_ROOT
+/** 外部依赖内置默认（解析链末端：config → env → constants 唯一默认源；AGENTS §9 端口约定同值） */
 export const EXTERNAL_DEFAULTS = {
-  qdrantUrl: 'http://127.0.0.1:6333',
-  embedUrl: 'http://127.0.0.1:8096/embed',
-  qdrantCollection: 'i2stream_collection',
-  gapLogPath: '/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl',
+  qdrantUrl: DEFAULT_QDRANT_URL,
+  embedUrl: DEFAULT_EMBED_URL,
+  qdrantCollection: DEFAULT_QDRANT_COLLECTION,
+  gapLogPath: DEFAULT_GAP_LOG,
 } as const
 
 export interface Config {

@@ -8,7 +8,7 @@
 
 | 路径 | 内容 |
 |---|---|
-| `code/dsh-plugin/` | BKN 插件（TS：12 工具 + RiskGuard 护栏 + 检索栈） |
+| `code/dsh-plugin/` | BKN 插件（TS：14 工具 + RiskGuard 护栏 + 检索栈） |
 | `code/ops-api/` | api-server + 会话桥 + 记忆 + supervisor 插件 |
 | `code/ops-skill-manager/` | 技能自管理（`skill_manage` 工具 + usage 台账 + curator 迁移） |
 | `code/dsh-observability/` | 观测插件：usage 留档（日切 JSONL + 轮转）、护栏命中审计、/v1/metrics 聚合 |

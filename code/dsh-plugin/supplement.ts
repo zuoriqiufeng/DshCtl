@@ -11,6 +11,7 @@
 
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { DEFAULT_GAP_LOG } from './constants.ts'
 
 export const SUPPLEMENT = {
   minContentLength: 50,
@@ -18,7 +19,7 @@ export const SUPPLEMENT = {
   deferToHermes: true,
   decomposeMin: 3,
   decomposeMax: 8,
-  gapLogPath: process.env.I2STREAM_GAP_LOG ?? '/hdd/demo/public/i2stream-bkn/logs/gap_log.jsonl',
+  gapLogPath: process.env.I2STREAM_GAP_LOG ?? DEFAULT_GAP_LOG,
   gapMaxBytes: 512 * 1024,
   gapBackups: 3,
 }
@@ -134,7 +135,9 @@ export function rotateIfNeeded(path: string, maxBytes: number, backups: number):
     }
     renameSync(path, `${path}.1`)
     return true
-  } catch {
+  } catch (e) {
+    // 批 A-3（H-15）：可观测写路径降级要留 warn，不能全黑盒
+    console.warn('[bkn-plugin] gap_log 轮转失败（H-15 降级）：' + path + ' ' + String(e).slice(0, 120))
     return false
   }
 }
@@ -149,8 +152,9 @@ export function logGap(tool: string, params: Json, confidence: string, gaps: str
   try {
     rotateIfNeeded(SUPPLEMENT.gapLogPath, SUPPLEMENT.gapMaxBytes, SUPPLEMENT.gapBackups)
     appendFileSync(SUPPLEMENT.gapLogPath, JSON.stringify(entry) + '\n')
-  } catch {
-    // 静默，不影响主流程
+  } catch (e) {
+    // 批 A-3（H-15）：写失败降级 + warn，不影响主流程
+    console.warn('[bkn-plugin] gap_log 写失败（H-15 降级）：' + SUPPLEMENT.gapLogPath + ' ' + String(e).slice(0, 120))
   }
 }
 

@@ -207,8 +207,11 @@ console.log('\n[3] riskGuard.ts 规则与决策')
   check('identifyHit：命令文本识别 delete_rule + RUNNING', h1?.action === 'delete_sync_rule' && h1?.state === 'RUNNING', JSON.stringify(h1))
   const h2 = identifyHit('mcp-act', { operation: 'failover', state: 'ABNORMAL' }, [])
   check('identifyHit：显式参数路径（非 mutating 工具）', h2?.action === 'failover' && h2?.state === 'ABNORMAL', JSON.stringify(h2))
-  check('identifyHit 与 guardDecision 一致：识别到命中时 guardDecision 必然产出（block 场景）或 advisory 放行',
-    (h1 === null) === (g1 === null && g2 === null) || (h1 !== null) === true, '')
+  // C-3（2026-11-09）：拆坍成恒真的旧断言 → 两个独立真断言（identifyHit 与 guardDecision 各自主张，互相对照）
+  check('identifyHit：delete+RUNNING 识别命中（单源识别为 guardDecision 提供同一输入）',
+    h1 !== null, JSON.stringify(h1))
+  check('guardDecision：同一命中 blockable=false → 按 advisory 放行返回 null（非无害路径 g2/g3 的 null）',
+    g1 === null && h1 !== null && g2 === null && g3 === null, 'g1=' + JSON.stringify(g1) + ' g2=' + JSON.stringify(g2))
   const h3 = identifyHit('bash', { command: 'ls -la /tmp' }, ['bash'])
   check('identifyHit：无害命令 → null', h3 === null, JSON.stringify(h3))
 }

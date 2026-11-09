@@ -105,7 +105,7 @@ HF_HOME=/hdd/demo/public/chunk/HuggingFace HF_HUB_OFFLINE=1 \
 curl http://127.0.0.1:8096/health
 ```
 
-## 已移植工具（12/12）
+## 已移植工具（14/14）
 
 前 4 个（首批）：
 - `query_product` — 产品定位/核心能力/竞品/行业/信创
@@ -166,7 +166,7 @@ search_qdrant/diagnose_db_link 不包 wrap（自带完整质量字段，同 Herm
 
 `../presets/i2stream-ops/` —— 运维对话 Agent preset（persona + 热路径提示词）。
 热路径内容由 `../scripts/gen-hotpath-prompt.ts` 从共享 BKN 生成（bkn 更新后重新运行）；
-本插件的 10 个工具由 host 级挂载提供给所有会话，preset 负责身份与速查知识。
+本插件的 14 个工具由 host 级挂载提供给所有会话，preset 负责身份与速查知识。
 
 ## ContextLoader 接入方式
 
